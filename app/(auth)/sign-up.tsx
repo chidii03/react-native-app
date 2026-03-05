@@ -1,0 +1,356 @@
+// app/(auth)/sign-up.tsx
+import React, { useState, useRef, useEffect } from "react";
+import {
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  ActivityIndicator, Platform, StatusBar, Image,
+  KeyboardAvoidingView, ScrollView, useWindowDimensions,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { OAuthProvider } from "react-native-appwrite";
+import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../components/Toast";
+import { account } from "../../services/appwriteConfig";
+import GoogleLogo from "../../components/GoogleLogo";
+import FacebookIcon from "../../components/FacebookIcon";
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TMDB_BASE  = "https://image.tmdb.org/t/p/w185";
+const POSTERS    = [
+  "/qJ2tW6WMUDux911r6m7haRef0WH.jpg", "/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
+  "/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg", "/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+  "/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg", "/velWPhVi2KkDs2McBNcjfr3VLKB.jpg",
+  "/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg", "/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
+  "/fiVW06jE7z9YnO4trhaMEdclSiC.jpg", "/AuFiYTkAZYTDcdzeqQLrdgw1AOa.jpg",
+];
+
+const PosterBg = () => {
+  const { width, height } = useWindowDimensions();
+  const pw   = Math.max(90, width / 5);
+  const ph   = pw * 1.5;
+  const cols = Math.ceil(width / pw) + 2;
+  const rows = Math.ceil(height / ph) + 2;
+  const items = Array.from({ length: cols * rows }, (_, i) => POSTERS[i % POSTERS.length]);
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={{
+        position: "absolute", flexDirection: "row", flexWrap: "wrap",
+        width: cols * (pw + 4), transform: [{ rotate: "-8deg" }],
+        left: -pw, top: -ph * 0.5,
+      }}>
+        {items.map((src, i) => (
+          <Image key={i} source={{ uri: `${TMDB_BASE}${src}` }}
+            style={{ width: pw, height: ph, margin: 2, borderRadius: 4 }} resizeMode="cover" />
+        ))}
+      </View>
+      <LinearGradient colors={["rgba(10,0,30,0.88)","rgba(10,0,30,0.94)","rgba(10,0,30,0.99)"]} style={StyleSheet.absoluteFill} />
+    </View>
+  );
+};
+
+const parseRegErr = (e: any): string => {
+  const msg  = String(e?.message ?? "").toLowerCase();
+  const code = e?.code;
+  if (msg.includes("already exists") || msg.includes("user_already_exists") || code === 409)
+    return "An account with this email already exists. Please sign in instead.";
+  if (msg.includes("network") || msg.includes("fetch"))
+    return "Network error. Check your connection.";
+  return e?.message || "Registration failed. Please try again.";
+};
+
+const SignUp = () => {
+  const router = useRouter();
+  const { returnTo, autoPlay } = useLocalSearchParams<{ returnTo?: string; autoPlay?: string }>();
+  const { register, loginWithOAuth } = useAuth();
+  const toast = useToast();
+  const { width } = useWindowDimensions();
+  const isDesktop  = width > 768;
+  const fromMovie  = !!returnTo && returnTo.includes("/movies/");
+
+  const [name,     setName]     = useState("");
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm,  setConfirm]  = useState("");
+  const [showPw,   setShowPw]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [formErr,  setFormErr]  = useState("");
+  const [errs,     setErrs]     = useState({ name: "", email: "", password: "", confirm: "" });
+
+  const emailRef   = useRef<TextInput>(null);
+  const pwRef      = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
+
+  // Ensure we don't auto-authenticate on mount
+  useEffect(() => {
+    account.deleteSession("current").catch(() => {});
+  }, []);
+
+  const setE = (f: keyof typeof errs, v: string) => setErrs(p => ({ ...p, [f]: v }));
+
+  const validate = (): boolean => {
+    let ok = true;
+    const n  = name.trim();
+    const em = email.trim().toLowerCase();
+    if (!n || n.length < 2)          { setE("name",    !n ? "Full name required" : "Min 2 characters"); ok = false; } else setE("name", "");
+    if (!em)                         { setE("email",   "Email is required");      ok = false; }
+    else if (!emailRegex.test(em))   { setE("email",   "Enter a valid email");    ok = false; } else setE("email", "");
+    if (password.length < 8)         { setE("password","Minimum 8 characters");   ok = false; }
+    else if (!/[A-Za-z]/.test(password)) { setE("password","Include at least one letter"); ok = false; }
+    else if (!/\d/.test(password))   { setE("password","Include at least one number"); ok = false; }
+    else                               setE("password", "");
+    if (!confirm)                    { setE("confirm", "Confirm your password");  ok = false; }
+    else if (password !== confirm)   { setE("confirm", "Passwords don't match"); ok = false; }
+    else                               setE("confirm", "");
+    return ok;
+  };
+
+  const handleSignUp = async () => {
+    setFormErr("");
+    if (!validate()) return;
+    setLoading(true);
+    try {
+      const { username } = await register(email.trim().toLowerCase(), password, name.trim());
+      toast.success(`Welcome, ${username}! 🎬`, fromMovie ? "Account created! Opening your movie…" : "Your 14-day free trial has started.");
+
+      // ── Navigate: go back to movie or profile ────────────────────────
+      if (returnTo) {
+        const dest = autoPlay === "true" ? `${returnTo}?autoPlay=true` : returnTo;
+        router.replace(dest as any);
+      } else {
+        router.replace("/(tabs)/profile");
+      }
+    } catch (e: any) {
+      setFormErr(parseRegErr(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOAuth = async (provider: OAuthProvider.Google | OAuthProvider.Facebook) => {
+    try { await loginWithOAuth(provider); }
+    catch (e: any) { toast.error("OAuth failed", e?.message ?? ""); }
+  };
+
+  const strength = !password ? 0 : password.length < 4 ? 1 : password.length < 8 ? 2 : password.length < 12 ? 3 : 4;
+  const strengthColors = ["transparent","#ef4444","#f59e0b","#84cc16","#4ade80"];
+  const strengthLabels = ["","Weak","Fair","Good","Strong"];
+
+  return (
+    <KeyboardAvoidingView style={S.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <PosterBg />
+      <ScrollView contentContainerStyle={S.scroll} keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={S.backBtn}
+          onPress={() => router.canGoBack() ? router.back() : router.replace("/")}>
+          <Ionicons name="arrow-back" size={18} color="#fff" />
+        </TouchableOpacity>
+
+        <View style={[S.card, isDesktop && S.cardWide]}>
+          <View style={S.cardHead}>
+            <LinearGradient colors={["rgba(171,139,255,0.25)","rgba(171,139,255,0.06)"]} style={S.headIcon}>
+              <Ionicons name={fromMovie ? "play-circle" : "person-add"} size={24} color="#AB8BFF" />
+            </LinearGradient>
+            <Text style={S.heading}>Create account</Text>
+            <Text style={S.sub}>
+              {fromMovie ? "Create a free account to watch 🎬" : "Join free — 14-day trial included"}
+            </Text>
+          </View>
+
+          {/* Movie context banner */}
+          {fromMovie && (
+            <View style={S.contextBox}>
+              <Ionicons name="film-outline" size={14} color="#AB8BFF" />
+              <Text style={S.contextTxt}>
+                Create a free account to stream the movie. You'll be taken straight back after.
+              </Text>
+            </View>
+          )}
+
+          {!!formErr && (
+            <View style={S.errBox}>
+              <Ionicons name="warning-outline" size={15} color="#fca5a5" />
+              <View style={{ flex: 1 }}>
+                <Text style={S.errText}>{formErr}</Text>
+                {formErr.includes("sign in") && (
+                  <TouchableOpacity
+                    onPress={() => router.push(returnTo
+                      ? `/(auth)/sign-in?returnTo=${encodeURIComponent(returnTo)}&autoPlay=${autoPlay ?? "false"}` as any
+                      : "/(auth)/sign-in")}
+                    style={{ marginTop: 6 }}>
+                    <Text style={S.errLink}>→ Sign in instead</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Name */}
+          <View style={S.field}>
+            <Text style={S.label}>FULL NAME</Text>
+            <View style={[S.row, !!errs.name && S.rowErr]}>
+              <View style={S.iconBox}><Ionicons name="person-outline" size={16} color={errs.name ? "#ef4444" : "#AB8BFF"} /></View>
+              <TextInput style={S.input} value={name}
+                onChangeText={v => { setName(v); setE("name", ""); }}
+                placeholder="John Doe" placeholderTextColor="rgba(255,255,255,0.2)"
+                autoCapitalize="words" returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()} blurOnSubmit={false}
+                {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
+            </View>
+            {!!errs.name && <Text style={S.fieldErr}>{errs.name}</Text>}
+          </View>
+
+          {/* Email */}
+          <View style={S.field}>
+            <Text style={S.label}>EMAIL ADDRESS</Text>
+            <View style={[S.row, !!errs.email && S.rowErr]}>
+              <View style={S.iconBox}><Ionicons name="mail-outline" size={16} color={errs.email ? "#ef4444" : "#AB8BFF"} /></View>
+              <TextInput ref={emailRef} style={S.input} value={email}
+                onChangeText={v => { setEmail(v); setE("email", ""); setFormErr(""); }}
+                placeholder="you@example.com" placeholderTextColor="rgba(255,255,255,0.2)"
+                keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                returnKeyType="next" onSubmitEditing={() => pwRef.current?.focus()} blurOnSubmit={false}
+                {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
+            </View>
+            {!!errs.email && <Text style={S.fieldErr}>{errs.email}</Text>}
+          </View>
+
+          {/* Password */}
+          <View style={S.field}>
+            <Text style={S.label}>PASSWORD</Text>
+            <View style={[S.row, !!errs.password && S.rowErr]}>
+              <View style={S.iconBox}><Ionicons name="lock-closed-outline" size={16} color={errs.password ? "#ef4444" : "#AB8BFF"} /></View>
+              <TextInput ref={pwRef} style={S.input} value={password}
+                onChangeText={v => { setPassword(v); setE("password", ""); }}
+                placeholder="Min. 8 characters" placeholderTextColor="rgba(255,255,255,0.2)"
+                secureTextEntry={!showPw} returnKeyType="next"
+                onSubmitEditing={() => confirmRef.current?.focus()} blurOnSubmit={false}
+                {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
+              <TouchableOpacity onPress={() => setShowPw(p => !p)} style={{ padding: 6 }}>
+                <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={16} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            </View>
+            {!!errs.password && <Text style={S.fieldErr}>{errs.password}</Text>}
+          </View>
+
+          {/* Strength */}
+          {password.length > 0 && (
+            <View style={S.strengthRow}>
+              {[1,2,3,4].map(i => (
+                <View key={i} style={[S.bar, { backgroundColor: strength >= i ? strengthColors[strength] : "rgba(255,255,255,0.08)" }]} />
+              ))}
+              <Text style={[S.strengthLbl, { color: strengthColors[strength] }]}>{strengthLabels[strength]}</Text>
+            </View>
+          )}
+
+          {/* Confirm */}
+          <View style={S.field}>
+            <Text style={S.label}>CONFIRM PASSWORD</Text>
+            <View style={[S.row, !!errs.confirm && S.rowErr]}>
+              <View style={S.iconBox}><Ionicons name="shield-checkmark-outline" size={16} color={errs.confirm ? "#ef4444" : "#AB8BFF"} /></View>
+              <TextInput ref={confirmRef} style={S.input} value={confirm}
+                onChangeText={v => { setConfirm(v); setE("confirm", ""); }}
+                placeholder="Repeat password" placeholderTextColor="rgba(255,255,255,0.2)"
+                secureTextEntry={!showPw} returnKeyType="done" onSubmitEditing={handleSignUp}
+                {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
+            </View>
+            {!!errs.confirm && <Text style={S.fieldErr}>{errs.confirm}</Text>}
+          </View>
+
+          {confirm.length > 0 && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <Ionicons name={password === confirm ? "checkmark-circle" : "close-circle"} size={13}
+                color={password === confirm ? "#4ade80" : "#ef4444"} />
+              <Text style={{ color: password === confirm ? "#4ade80" : "#ef4444", fontSize: 11 }}>
+                {password === confirm ? "Passwords match" : "Passwords don't match"}
+              </Text>
+            </View>
+          )}
+
+          {/* Create account */}
+          <TouchableOpacity
+            style={[S.btn, loading && { opacity: 0.6 }]}
+            onPress={handleSignUp} disabled={loading} activeOpacity={0.85}>
+            <LinearGradient
+              colors={loading ? ["#333","#333"] : ["#c4a8ff","#AB8BFF","#7c3aed"]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={S.btnIn}>
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <><Ionicons name={fromMovie ? "play" : "person-add-outline"} size={17} color="#0f0f12" />
+                    <Text style={S.btnTxt}>{fromMovie ? "Create Account & Watch" : "Create Account"}</Text></>}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* OAuth */}
+          <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR SIGN UP WITH</Text><View style={S.divLine} /></View>
+          <View style={S.oauthRow}>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
+              <GoogleLogo size={22} />
+              <Text style={S.oauthTxt}>Google</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
+              <FacebookIcon size={22} />
+              <Text style={S.oauthTxt}>Facebook</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Sign in */}
+          <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>ALREADY HAVE AN ACCOUNT?</Text><View style={S.divLine} /></View>
+          <TouchableOpacity
+            style={S.outBtn}
+            onPress={() => router.push(returnTo
+              ? `/(auth)/sign-in?returnTo=${encodeURIComponent(returnTo)}&autoPlay=${autoPlay ?? "false"}` as any
+              : "/(auth)/sign-in")}
+            activeOpacity={0.85}>
+            <Ionicons name="log-in-outline" size={15} color="#AB8BFF" />
+            <Text style={S.outBtnTxt}>Sign In</Text>
+          </TouchableOpacity>
+
+          <Text style={S.terms}>By signing up you agree to our <Text style={{ color: "#AB8BFF" }}>Terms</Text> and <Text style={{ color: "#AB8BFF" }}>Privacy Policy</Text>.</Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+export default SignUp;
+
+const S = StyleSheet.create({
+  root:        { flex: 1, backgroundColor: "#0a001e" },
+  scroll:      { flexGrow: 1, padding: 22, paddingTop: Platform.OS === "web" ? 40 : 56, alignItems: "center" },
+  backBtn:     { alignSelf: "flex-start", width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", marginBottom: 20 },
+  card:        { width: "100%", maxWidth: 480, backgroundColor: "rgba(12,4,30,0.95)", borderRadius: 22, padding: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", ...(Platform.OS === "web" ? { boxShadow: "0 32px 80px rgba(0,0,0,0.6)" } as any : {}) },
+  cardWide:    { maxWidth: 480 },
+  cardHead:    { alignItems: "center", marginBottom: 20 },
+  headIcon:    { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  heading:     { color: "#fff", fontSize: 24, fontWeight: "900", textAlign: "center", marginBottom: 4 },
+  sub:         { color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center" },
+  contextBox:  { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(171,139,255,0.08)", borderWidth: 1, borderColor: "rgba(171,139,255,0.2)", borderRadius: 12, padding: 12, marginBottom: 18 },
+  contextTxt:  { color: "rgba(171,139,255,0.85)", fontSize: 13, flex: 1, lineHeight: 18 },
+  errBox:      { flexDirection: "row", gap: 10, alignItems: "flex-start", backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)", borderRadius: 12, padding: 12, marginBottom: 16 },
+  errText:     { color: "#fca5a5", fontSize: 13, lineHeight: 18 },
+  errLink:     { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
+  field:       { marginBottom: 12 },
+  label:       { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "800", letterSpacing: 1.4, marginBottom: 7 },
+  row:         { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 6, paddingVertical: Platform.OS === "web" ? 4 : 2 },
+  rowErr:      { borderColor: "rgba(239,68,68,0.5)", backgroundColor: "rgba(239,68,68,0.04)" },
+  iconBox:     { width: 30, height: 30, borderRadius: 7, backgroundColor: "rgba(171,139,255,0.1)", alignItems: "center", justifyContent: "center", marginRight: 7 },
+  input:       { flex: 1, color: "#fff", fontSize: 14, paddingVertical: Platform.OS === "web" ? 10 : 11 },
+  fieldErr:    { color: "#ef4444", fontSize: 10, marginTop: 3, marginLeft: 3 },
+  strengthRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
+  bar:         { flex: 1, height: 3, borderRadius: 2 },
+  strengthLbl: { fontSize: 10, marginLeft: 4, minWidth: 36, fontWeight: "800" },
+  btn:         { borderRadius: 12, overflow: "hidden", marginTop: 4, marginBottom: 14 },
+  btnIn:       { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14 },
+  btnTxt:      { color: "#0f0f12", fontWeight: "900", fontSize: 15 },
+  divRow:      { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  divLine:     { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
+  divTxt:      { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
+  oauthRow:    { flexDirection: "row", gap: 8, marginBottom: 14 },
+  oauthBtn:    { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", paddingVertical: 11 },
+  oauthTxt:    { color: "#fff", fontSize: 12, fontWeight: "700" },
+  outBtn:      { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 11, paddingVertical: 13, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 14 },
+  outBtnTxt:   { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
+  terms:       { color: "rgba(255,255,255,0.18)", fontSize: 11, textAlign: "center", lineHeight: 16 },
+});

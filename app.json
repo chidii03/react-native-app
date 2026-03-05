@@ -1,29 +1,59 @@
 {
   "expo": {
-    "name": "react-native-app",
+    "name": "Chidi-movie-app",
+    "description": "Movie Time | Streaming - Watch all movies, save favorites, and explore trending titles.",
     "slug": "react-native-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "icon": "./assets/images/logo.png",
+    "scheme": "reactnativeapp",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chidi03.reactnativeapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.chidi03.reactnativeapp"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "bundler": "metro",
+      "output": "server",
+      "favicon": "./assets/images/logo.png",
+      "themeColor": "#000000"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-image-picker",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "af8bcadf-1728-493c-8fbc-b12749648f42"
+      }
+    },
+    "owner": "chidi03"
   }
 }
