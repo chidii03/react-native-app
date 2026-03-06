@@ -141,10 +141,13 @@ export default function Index() {
   const isLoading = trendingLoading || nowPlayingLoading;
 
   const curated = useMemo(() => {
+    const hasPoster = (m: any) =>
+      typeof m?.poster_path === "string" && m.poster_path.trim().length > 0;
+
     const uniqueList = (list: any[] = []) => {
       const local = new Set<number>();
       return list.filter((m: any) => {
-        if (!m?.id || local.has(m.id)) return false;
+        if (!m?.id || local.has(m.id) || !hasPoster(m)) return false;
         local.add(m.id);
         return true;
       });
@@ -166,7 +169,7 @@ export default function Index() {
       }
 
       for (const m of backup) {
-        if (!m?.id || used.has(m.id)) continue;
+        if (!m?.id || used.has(m.id) || !hasPoster(m)) continue;
         used.add(m.id);
         out.push(m);
         if (out.length >= count) return out;
