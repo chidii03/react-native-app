@@ -1,5 +1,5 @@
 import React from "react";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 
 type Props = {
   size?: number;
@@ -8,7 +8,6 @@ type Props = {
 export default function GoogleLogo({ size = 22 }: Props) {
   return (
     <Svg viewBox="0 0 24 24" width={size} height={size}>
-      <Circle cx="12" cy="12" r="12" fill="#FFFFFF" />
       <Path
         fill="#4285F4"
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"

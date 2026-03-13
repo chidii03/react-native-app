@@ -1,7 +1,7 @@
 // app/(auth)/sign-in.tsx
 import React, { useState, useRef, useEffect } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Pressable,
   ActivityIndicator, Platform, StatusBar,
   KeyboardAvoidingView, ScrollView, useWindowDimensions,
 } from "react-native";
@@ -86,8 +86,14 @@ const SignIn = () => {
   };
 
   const handleOAuth = async (provider: OAuthProvider.Google | OAuthProvider.Facebook) => {
-    try { await loginWithOAuth(provider); }
-    catch (e: any) { toast.error("OAuth failed", String(e?.message ?? "")); }
+    console.log("[SignIn] OAuth button clicked:", provider);
+    try {
+      await loginWithOAuth(provider);
+      console.log("[SignIn] OAuth session started:", provider);
+    } catch (e: any) {
+      console.error("[SignIn] OAuth failed:", provider, e?.code, e?.message);
+      toast.error("OAuth failed", String(e?.message ?? ""));
+    }
   };
 
   return (
@@ -236,14 +242,28 @@ const SignIn = () => {
 
           {/* OAuth */}
           <View style={S.oauthRow}>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
-              <GoogleLogo size={22} />
+            <Pressable
+              style={({ hovered, pressed }) => [
+                S.oauthBtn,
+                hovered && S.oauthBtnHover,
+                pressed && S.oauthBtnPressed,
+              ]}
+              onPress={() => handleOAuth(OAuthProvider.Google)}
+            >
+              <GoogleLogo size={28} />
               <Text style={S.oauthTxt}>Google</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
-              <FacebookIcon size={22} />
+            </Pressable>
+            <Pressable
+              style={({ hovered, pressed }) => [
+                S.oauthBtn,
+                hovered && S.oauthBtnHover,
+                pressed && S.oauthBtnPressed,
+              ]}
+              onPress={() => handleOAuth(OAuthProvider.Facebook)}
+            >
+              <FacebookIcon size={24} />
               <Text style={S.oauthTxt}>Facebook</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Sign up link */}
@@ -307,9 +327,26 @@ const S = StyleSheet.create({
   divRow:     { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
   divLine:    { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   divTxt:     { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
-  oauthRow:   { flexDirection: "row", gap: 10, marginBottom: 18 },
-  oauthBtn:   { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", paddingVertical: 13 },
-  oauthTxt:   { color: "#fff", fontSize: 13, fontWeight: "700" },
+  oauthRow:   { flexDirection: "row", gap: 12, marginBottom: 18 },
+  oauthBtn:   {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 10,
+    minHeight: 44,
+    backgroundColor: "rgba(243,244,246,0.08)",
+    borderColor: "rgba(229,231,235,0.35)",
+  },
+  oauthBtnHover: {
+    borderColor: "rgba(229,231,235,0.6)",
+    backgroundColor: "rgba(243,244,246,0.14)",
+  },
+  oauthBtnPressed: { opacity: 0.85 },
+  oauthTxt:   { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
   outBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 14, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 8 },
   outBtnTxt:  { color: "#AB8BFF", fontWeight: "800", fontSize: 14 },
   skip:       { alignItems: "center", paddingVertical: 8 },

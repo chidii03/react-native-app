@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
-  Alert, Modal, TextInput, ActivityIndicator, Platform,
+  Modal, TextInput, ActivityIndicator, Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -208,6 +208,7 @@ const Profile = () => {
 
   const [watchCount, setWatchCount]   = useState(0);
   const [editModal, setEditModal]     = useState(false);
+  const [logoutModal, setLogoutModal] = useState(false);
   const [loggingOut, setLoggingOut]   = useState(false);
   const [avatarModal, setAvatarModal] = useState(false);
   const [avatarUrl, setAvatarUrl]     = useState("");
@@ -234,20 +235,23 @@ const Profile = () => {
 
   const trial = getTrialInfo(trialStartDate);
 
+  const runLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      console.log("[Profile] Sign out successful");
+      toast.success("Signed out");
+      router.replace("/");
+    } catch (e: any) {
+      console.error("[Profile] Sign out failed:", e?.code, e?.message);
+      toast.error("Sign out failed", String(e?.message ?? ""));
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   const handleLogout = () => {
-    Alert.alert(t("sign_out", "Sign Out"), t("sign_out_confirm", "Are you sure you want to sign out?"), [
-      { text: t("cancel", "Cancel"), style: "cancel" },
-      {
-        text: t("sign_out", "Sign Out"), style: "destructive",
-        onPress: async () => {
-          setLoggingOut(true);
-          await logout();
-          setLoggingOut(false);
-          toast.success("Signed out");
-          router.replace("/(tabs)");
-        },
-      },
-    ]);
+    setLogoutModal(true);
   };
 
   const saveAvatar = async (next: string) => {
@@ -471,6 +475,35 @@ const Profile = () => {
           <ActivityIndicator size="large" color="#AB8BFF" />
         </View>
       )}
+      <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
+        <View style={S.overlay}>
+          <View style={S.modalBox}>
+            <Text style={S.modalTitle}>{t("sign_out", "Sign Out")}</Text>
+            <Text style={S.modalHint}>
+              {t("sign_out_confirm", "Are you sure you want to sign out?")}
+            </Text>
+            <View style={S.modalBtns}>
+              <TouchableOpacity style={S.modalCancel} onPress={() => setLogoutModal(false)}>
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontWeight: "700" }}>
+                  {t("cancel", "Cancel")}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={S.modalDanger}
+                onPress={async () => {
+                  setLogoutModal(false);
+                  await runLogout();
+                }}
+                disabled={loggingOut}
+              >
+                <Text style={{ color: "#ffffff", fontWeight: "900" }}>
+                  {t("sign_out", "Sign Out")}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal visible={avatarModal} transparent animationType="fade" onRequestClose={() => setAvatarModal(false)}>
         <View style={S.overlay}>
           <View style={S.modalBox}>
@@ -563,6 +596,7 @@ const S = StyleSheet.create({
   modalBtns:     { flexDirection: "row", gap: 10 },
   modalCancel:   { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
   modalSave:     { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#AB8BFF" },
+  modalDanger:   { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 10, backgroundColor: "#ef4444" },
   previewWrap:   { alignItems: "center", marginBottom: 16 },
   previewImg:    { width: 120, height: 120, borderRadius: 60, borderWidth: 2, borderColor: "rgba(171,139,255,0.35)" },
   oauthAvatarBtn: { marginTop: 12, alignItems: "center" },

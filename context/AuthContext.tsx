@@ -268,10 +268,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loginWithOAuth = async (provider: OAuthProvider.Google | OAuthProvider.Facebook) => {
     const base = typeof window !== "undefined" ? window.location.origin : "";
+    console.log("[Auth] Starting OAuth session:", provider);
     await account.createOAuth2Session(
       provider,
       base ? `${base}/` : undefined,
-      base ? `${base}/(auth)/sign-in` : undefined,
+      base ? `${base}/sign-in` : undefined,
     );
   };
 

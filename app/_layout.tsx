@@ -48,8 +48,8 @@ export default function RootLayout() {
             <ToastProvider>
               <Head>
                 <title>Movie Time | Streaming - Watch All Movies</title>
-                <link rel="icon" href="/assets/images/logo.png" />
-                <link rel="apple-touch-icon" href="/assets/images/logo.png" />
+                <link rel="icon" href="/assets/icons/logo.png" />
+                <link rel="apple-touch-icon" href="/assets/icons/logo.png" />
                 <meta
                   name="description"
                   content="Movie Time helps you discover, save, and stream trending movies with a fast, user-friendly experience."
@@ -59,12 +59,12 @@ export default function RootLayout() {
                   content="movie time, streaming movies, watch movies online, trending movies, movie discovery"
                 />
                 <meta property="og:title" content="Movie Time | Streaming - Watch All Movies" />
-                <meta property="og:image" content="/assets/images/logo.png" />
+                <meta property="og:image" content="/assets/icons/logo.png" />
                 <meta
                   property="og:description"
                   content="Discover trending movies, build your watchlist, and enjoy a smooth streaming experience."
                 />
-                <meta name="twitter:image" content="/assets/images/logo.png" />
+                <meta name="twitter:image" content="/assets/icons/logo.png" />
                 <meta name="twitter:card" content="summary_large_image" />
               </Head>
               <AppGuard />

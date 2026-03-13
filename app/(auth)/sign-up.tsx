@@ -1,7 +1,7 @@
 // app/(auth)/sign-up.tsx
 import React, { useState, useRef, useEffect } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Pressable,
   ActivityIndicator, Platform, StatusBar, Image,
   KeyboardAvoidingView, ScrollView, useWindowDimensions,
 } from "react-native";
@@ -128,8 +128,14 @@ const SignUp = () => {
   };
 
   const handleOAuth = async (provider: OAuthProvider.Google | OAuthProvider.Facebook) => {
-    try { await loginWithOAuth(provider); }
-    catch (e: any) { toast.error("OAuth failed", e?.message ?? ""); }
+    console.log("[SignUp] OAuth button clicked:", provider);
+    try {
+      await loginWithOAuth(provider);
+      console.log("[SignUp] OAuth session started:", provider);
+    } catch (e: any) {
+      console.error("[SignUp] OAuth failed:", provider, e?.code, e?.message);
+      toast.error("OAuth failed", e?.message ?? "");
+    }
   };
 
   const strength = !password ? 0 : password.length < 4 ? 1 : password.length < 8 ? 2 : password.length < 12 ? 3 : 4;
@@ -285,14 +291,28 @@ const SignUp = () => {
           {/* OAuth */}
           <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR SIGN UP WITH</Text><View style={S.divLine} /></View>
           <View style={S.oauthRow}>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
-              <GoogleLogo size={22} />
+            <Pressable
+              style={({ hovered, pressed }) => [
+                S.oauthBtn,
+                hovered && S.oauthBtnHover,
+                pressed && S.oauthBtnPressed,
+              ]}
+              onPress={() => handleOAuth(OAuthProvider.Google)}
+            >
+              <GoogleLogo size={28} />
               <Text style={S.oauthTxt}>Google</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
-              <FacebookIcon size={22} />
+            </Pressable>
+            <Pressable
+              style={({ hovered, pressed }) => [
+                S.oauthBtn,
+                hovered && S.oauthBtnHover,
+                pressed && S.oauthBtnPressed,
+              ]}
+              onPress={() => handleOAuth(OAuthProvider.Facebook)}
+            >
+              <FacebookIcon size={24} />
               <Text style={S.oauthTxt}>Facebook</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Sign in */}
@@ -347,9 +367,26 @@ const S = StyleSheet.create({
   divRow:      { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   divLine:     { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   divTxt:      { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
-  oauthRow:    { flexDirection: "row", gap: 8, marginBottom: 14 },
-  oauthBtn:    { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", paddingVertical: 11 },
-  oauthTxt:    { color: "#fff", fontSize: 12, fontWeight: "700" },
+  oauthRow:    { flexDirection: "row", gap: 12, marginBottom: 14 },
+  oauthBtn:    {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 10,
+    minHeight: 44,
+    backgroundColor: "rgba(243,244,246,0.08)",
+    borderColor: "rgba(229,231,235,0.35)",
+  },
+  oauthBtnHover: {
+    borderColor: "rgba(229,231,235,0.6)",
+    backgroundColor: "rgba(243,244,246,0.14)",
+  },
+  oauthBtnPressed: { opacity: 0.85 },
+  oauthTxt:    { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
   outBtn:      { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 11, paddingVertical: 13, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 14 },
   outBtnTxt:   { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
   terms:       { color: "rgba(255,255,255,0.18)", fontSize: 11, textAlign: "center", lineHeight: 16 },
