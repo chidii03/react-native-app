@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+// app/api/support+api.ts
 
 type Payload = {
   name?: string;
@@ -6,11 +6,27 @@ type Payload = {
   message?: string;
 };
 
+// Safe require — returns null if module is empty or unavailable
+const getNodemailer = () => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nm = require("nodemailer");
+    // Handle both CJS default export and ESM interop
+    const mod = nm?.default ?? nm;
+    if (typeof mod?.createTransport === "function") return mod;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const getTransport = () => {
-  // Support both correct env keys and mistakenly prefixed keys.
-  const user = process.env.EMAIL_USER || process.env["process.env.EMAIL_USER"];
-  const pass = process.env.EMAIL_PASS || process.env["process.env.EMAIL_PASS"];
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
   if (!user || !pass) return null;
+
+  const nodemailer = getNodemailer();
+  if (!nodemailer) return null;
 
   return nodemailer.createTransport({
     service: "gmail",
@@ -28,8 +44,9 @@ const htmlTemplate = (p: Required<Payload>) => `
 <body style="margin:0;padding:0;background:#0b0b12;font-family:Inter,Arial,sans-serif;color:#f4f4f5;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0b0b12;padding:24px 12px;">
     <tr>
-      <td align="center" style="text-align:center;">
-        <table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;margin:0 auto;background:#111122;border:1px solid #26263a;border-radius:16px;overflow:hidden;">
+      <td align="center">
+        <table role="presentation" width="680" cellspacing="0" cellpadding="0"
+          style="width:100%;max-width:680px;margin:0 auto;background:#111122;border:1px solid #26263a;border-radius:16px;overflow:hidden;">
           <tr>
             <td style="background:linear-gradient(90deg,#7c3aed,#ab8bff);padding:18px 22px;">
               <div style="font-size:22px;font-weight:900;letter-spacing:.4px;">MOVIETIME</div>
@@ -40,8 +57,8 @@ const htmlTemplate = (p: Required<Payload>) => `
             <td style="padding:22px;">
               <div style="font-size:18px;font-weight:800;margin-bottom:6px;">Support Request</div>
               <div style="font-size:13px;color:#a1a1aa;margin-bottom:16px;">Submitted from the in-app contact form</div>
-
-              <table width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #2f2f46;border-radius:12px;overflow:hidden;">
+              <table width="100%" cellspacing="0" cellpadding="0"
+                style="border:1px solid #2f2f46;border-radius:12px;overflow:hidden;">
                 <tr>
                   <td style="padding:12px 14px;width:140px;color:#ab8bff;background:#161628;font-size:12px;font-weight:700;">Name</td>
                   <td style="padding:12px 14px;background:#131322;font-size:14px;">${p.name}</td>
@@ -55,7 +72,6 @@ const htmlTemplate = (p: Required<Payload>) => `
                   <td style="padding:12px 14px;background:#131322;font-size:14px;line-height:1.6;white-space:pre-line;">${p.message}</td>
                 </tr>
               </table>
-
               <div style="margin-top:16px;font-size:12px;color:#9ca3af;">
                 Reply directly to this email to contact the user.
               </div>
@@ -72,8 +88,8 @@ const htmlTemplate = (p: Required<Payload>) => `
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = (await request.json()) as Payload;
-    const name = String(body.name ?? "").trim();
-    const email = String(body.email ?? "").trim();
+    const name    = String(body.name    ?? "").trim();
+    const email   = String(body.email   ?? "").trim();
     const message = String(body.message ?? "").trim();
 
     if (!name || !email || !message) {
@@ -81,29 +97,31 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const transporter = getTransport();
+
     if (!transporter) {
+      // On Vercel: means EMAIL_USER/EMAIL_PASS are not set
+      // On local Expo Go: nodemailer is empty module — expected, not a real error
       return Response.json(
-        {
-          error:
-            "Server email is not configured. Set EMAIL_USER and EMAIL_PASS in .env then restart Expo.",
-        },
+        { error: "Email service not available. Set EMAIL_USER and EMAIL_PASS in Vercel Environment Variables." },
         { status: 500 }
       );
     }
 
-    const to = "chidiokwu795@gmail.com";
-    const fromUser = process.env.EMAIL_USER || process.env["process.env.EMAIL_USER"];
+    const fromUser = process.env.EMAIL_USER!;
     await transporter.sendMail({
-      from: `"MovieTime Support Form" <${fromUser}>`,
-      to,
+      from:    `"MovieTime Support" <${fromUser}>`,
+      to:      "chidiokwu795@gmail.com",
       replyTo: email,
       subject: `Support request from ${name}`,
-      text: `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
-      html: htmlTemplate({ name, email, message }),
+      text:    `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
+      html:    htmlTemplate({ name, email, message }),
     });
 
     return Response.json({ ok: true });
   } catch (e: any) {
-    return Response.json({ error: e?.message ?? "Unable to send support message" }, { status: 500 });
+    return Response.json(
+      { error: e?.message ?? "Unable to send support message" },
+      { status: 500 }
+    );
   }
 }
