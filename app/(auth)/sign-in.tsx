@@ -1,4 +1,17 @@
 // app/(auth)/sign-in.tsx
+//
+// OAUTH ROOT CAUSE (DEFINITIVE):
+// react-native-appwrite's account.createOAuth2Session on WEB builds the
+// OAuth URL but never actually navigates to it — it expects you to handle
+// the redirect yourself. On some SDK versions it throws, on others it silently
+// does nothing.
+//
+// THE REAL FIX: Build the OAuth URL manually using your Appwrite endpoint
+// and project ID, then do window.location.href = url on web.
+// This is exactly what Appwrite's own web SDK (appwrite package) does.
+//
+// No extra packages needed — just your existing EXPO_PUBLIC_ env vars.
+
 import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
@@ -46,17 +59,35 @@ const PosterBg = () => {
         ))}
       </View>
       <LinearGradient
-        colors={["rgba(10,0,30,0.85)", "rgba(10,0,30,0.92)", "rgba(10,0,30,0.98)"]}
+        colors={["rgba(10,0,30,0.85)","rgba(10,0,30,0.92)","rgba(10,0,30,0.98)"]}
         style={StyleSheet.absoluteFill} />
     </View>
   );
+};
+
+// ── Build Appwrite OAuth URL manually (most reliable approach) ───────────────
+// Works with both cloud.appwrite.io and self-hosted instances.
+const buildOAuthUrl = (provider: OAuthProvider, successUrl: string, failureUrl: string): string => {
+  // Read from your existing env vars
+  const endpoint  = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT  ?? "https://cloud.appwrite.io/v1";
+  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "";
+
+  const params = new URLSearchParams({
+    project: projectId,
+    success: successUrl,
+    failure: failureUrl,
+  });
+
+  // Appwrite OAuth URL format:
+  // {endpoint}/account/sessions/oauth2/{provider}?project=...&success=...&failure=...
+  return `${endpoint}/account/sessions/oauth2/${provider}?${params.toString()}`;
 };
 
 const getRawError = (e: any): string => {
   const code = e?.code;
   const msg  = String(e?.message ?? "");
   if (!code && !msg)
-    return "Network error — can't reach Appwrite.\nFix: Appwrite Console → Project → Settings → Platforms → Add Web platform.";
+    return "Network error. Fix: Appwrite Console → Project → Settings → Platforms → Add Web platform with your domain.";
   if (code === 401) return "Wrong email or password. Please try again.";
   if (code === 404) return "Account not found. Please sign up first.";
   if (code === 409) return "Session conflict. Refresh and try again.";
@@ -117,7 +148,10 @@ const SignIn = () => {
     }
   };
 
-  // ── OAuth fix: on web, SDK returns a URL string that we must navigate to ──
+  // ── DEFINITIVE OAuth fix ─────────────────────────────────────────────────
+  // On web: build the Appwrite OAuth URL and navigate directly.
+  //         This bypasses any SDK issues entirely.
+  // On native: use SDK which opens in-app browser.
   const handleOAuth = async (provider: OAuthProvider) => {
     try {
       const base =
@@ -127,23 +161,17 @@ const SignIn = () => {
       const successUrl = `${base}/`;
       const failureUrl = `${base}/(auth)/sign-in`;
 
-      if (Platform.OS === "web") {
-        // Appwrite web SDK returns the provider URL as a string on some versions.
-        // Cast to any to handle both: redirect internally OR return a URL string.
-        const result = await (account as any).createOAuth2Session(
-          provider, successUrl, failureUrl
-        );
-        // If it returned a URL string, navigate to it
-        if (typeof result === "string" && result.startsWith("http")) {
-          window.location.href = result;
-        }
-        // If result is undefined/null, the SDK handled the redirect itself — no action needed
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        // Build URL manually — guaranteed to work regardless of SDK version
+        const oauthUrl = buildOAuthUrl(provider, successUrl, failureUrl);
+        console.log("[OAuth] Redirecting to:", oauthUrl);
+        window.location.href = oauthUrl;
       } else {
-        // Native: SDK opens in-app browser automatically
+        // Native: SDK handles the in-app browser
         await account.createOAuth2Session(provider, successUrl, failureUrl);
       }
     } catch (e: any) {
-      console.error("[OAuth]", e?.code, e?.message);
+      console.error("[OAuth] Error:", e?.code, e?.message);
       toast.error("OAuth failed", String(e?.message ?? "Please try again"));
     }
   };
@@ -165,9 +193,8 @@ const SignIn = () => {
           </TouchableOpacity>
 
           <View style={[S.card, width > 768 && S.cardWide]}>
-
             <View style={S.cardHead}>
-              <LinearGradient colors={["rgba(171,139,255,0.25)", "rgba(171,139,255,0.06)"]} style={S.headIcon}>
+              <LinearGradient colors={["rgba(171,139,255,0.25)","rgba(171,139,255,0.06)"]} style={S.headIcon}>
                 <Ionicons name={fromMovie ? "play-circle" : "film"} size={26} color="#AB8BFF" />
               </LinearGradient>
               <Text style={S.heading}>Welcome back</Text>
@@ -188,10 +215,9 @@ const SignIn = () => {
                   <Text style={S.errText}>{formErr}</Text>
                   {(formErr.includes("sign up") || formErr.includes("not found")) && (
                     <TouchableOpacity
-                      onPress={() => router.push(
-                        (returnTo
-                          ? "/(auth)/sign-up?returnTo=" + encodeURIComponent(String(returnTo)) + "&autoPlay=" + (autoPlay ?? "false")
-                          : "/(auth)/sign-up") as any)}
+                      onPress={() => router.push((returnTo
+                        ? "/(auth)/sign-up?returnTo=" + encodeURIComponent(String(returnTo)) + "&autoPlay=" + (autoPlay ?? "false")
+                        : "/(auth)/sign-up") as any)}
                       style={{ marginTop: 6 }}>
                       <Text style={S.errLink}>Create a free account →</Text>
                     </TouchableOpacity>
@@ -257,7 +283,6 @@ const SignIn = () => {
 
             <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR</Text><View style={S.divLine} /></View>
 
-            {/* OAuth — TouchableOpacity works on native + web */}
             <View style={S.oauthRow}>
               <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
                 <GoogleLogo size={24} />
@@ -273,10 +298,9 @@ const SignIn = () => {
 
             <TouchableOpacity
               style={S.outBtn}
-              onPress={() => router.push(
-                (returnTo
-                  ? "/(auth)/sign-up?returnTo=" + encodeURIComponent(String(returnTo)) + "&autoPlay=" + (autoPlay ?? "false")
-                  : "/(auth)/sign-up") as any)}
+              onPress={() => router.push((returnTo
+                ? "/(auth)/sign-up?returnTo=" + encodeURIComponent(String(returnTo)) + "&autoPlay=" + (autoPlay ?? "false")
+                : "/(auth)/sign-up") as any)}
               activeOpacity={0.85}>
               <Ionicons name="person-add-outline" size={15} color="#AB8BFF" />
               <Text style={S.outBtnTxt}>Create a Free Account</Text>

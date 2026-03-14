@@ -51,6 +51,14 @@ const PosterBg = () => {
   );
 };
 
+// Build Appwrite OAuth URL manually — bypasses SDK redirect issues entirely
+const buildOAuthUrl = (provider: OAuthProvider, successUrl: string, failureUrl: string): string => {
+  const endpoint  = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT  ?? "https://cloud.appwrite.io/v1";
+  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "";
+  const params = new URLSearchParams({ project: projectId, success: successUrl, failure: failureUrl });
+  return `${endpoint}/account/sessions/oauth2/${provider}?${params.toString()}`;
+};
+
 const parseRegErr = (e: any): string => {
   const msg  = String(e?.message ?? "").toLowerCase();
   const code = e?.code;
@@ -83,24 +91,21 @@ const SignUp = () => {
   const pwRef      = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
 
-  useEffect(() => {
-    account.deleteSession("current").catch(() => {});
-  }, []);
+  useEffect(() => { account.deleteSession("current").catch(() => {}); }, []);
 
   const setE = (f: keyof typeof errs, v: string) => setErrs(p => ({ ...p, [f]: v }));
 
   const validate = (): boolean => {
     let ok = true;
-    const n  = name.trim();
-    const em = email.trim().toLowerCase();
-    if (!n || n.length < 2)              { setE("name",    !n ? "Full name required" : "Min 2 characters"); ok = false; } else setE("name", "");
-    if (!em)                             { setE("email",   "Email is required");      ok = false; }
-    else if (!emailRegex.test(em))       { setE("email",   "Enter a valid email");    ok = false; } else setE("email", "");
-    if (password.length < 8)             { setE("password","Minimum 8 characters");   ok = false; }
-    else if (!/[A-Za-z]/.test(password)) { setE("password","Include at least one letter"); ok = false; }
-    else if (!/\d/.test(password))       { setE("password","Include at least one number"); ok = false; }
+    const n  = name.trim(); const em = email.trim().toLowerCase();
+    if (!n || n.length < 2)              { setE("name", !n ? "Full name required" : "Min 2 characters"); ok = false; } else setE("name", "");
+    if (!em)                             { setE("email", "Email is required"); ok = false; }
+    else if (!emailRegex.test(em))       { setE("email", "Enter a valid email"); ok = false; } else setE("email", "");
+    if (password.length < 8)             { setE("password", "Minimum 8 characters"); ok = false; }
+    else if (!/[A-Za-z]/.test(password)) { setE("password", "Include at least one letter"); ok = false; }
+    else if (!/\d/.test(password))       { setE("password", "Include at least one number"); ok = false; }
     else                                   setE("password", "");
-    if (!confirm)                        { setE("confirm", "Confirm your password");  ok = false; }
+    if (!confirm)                        { setE("confirm", "Confirm your password"); ok = false; }
     else if (password !== confirm)       { setE("confirm", "Passwords don't match"); ok = false; }
     else                                   setE("confirm", "");
     return ok;
@@ -125,7 +130,7 @@ const SignUp = () => {
     }
   };
 
-  // ── OAuth fix: on web, SDK returns a URL string that we must navigate to ──
+  // DEFINITIVE OAuth fix — build URL manually, navigate directly on web
   const handleOAuth = async (provider: OAuthProvider) => {
     try {
       const base =
@@ -135,18 +140,15 @@ const SignUp = () => {
       const successUrl = `${base}/`;
       const failureUrl = `${base}/(auth)/sign-in`;
 
-      if (Platform.OS === "web") {
-        const result = await (account as any).createOAuth2Session(
-          provider, successUrl, failureUrl
-        );
-        if (typeof result === "string" && result.startsWith("http")) {
-          window.location.href = result;
-        }
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        const oauthUrl = buildOAuthUrl(provider, successUrl, failureUrl);
+        console.log("[OAuth] Redirecting to:", oauthUrl);
+        window.location.href = oauthUrl;
       } else {
         await account.createOAuth2Session(provider, successUrl, failureUrl);
       }
     } catch (e: any) {
-      console.error("[OAuth]", e?.code, e?.message);
+      console.error("[OAuth] Error:", e?.code, e?.message);
       toast.error("OAuth failed", String(e?.message ?? "Please try again"));
     }
   };
@@ -171,13 +173,13 @@ const SignUp = () => {
               <Ionicons name={fromMovie ? "play-circle" : "person-add"} size={24} color="#AB8BFF" />
             </LinearGradient>
             <Text style={S.heading}>Create account</Text>
-            <Text style={S.sub}>{fromMovie ? "Create a free account to watch 🎬" : "Join free — 14-day trial included"}</Text>
+            <Text style={S.sub}>{fromMovie ? "Join millions of subscibers 🎬" : "Join free — 14-day trial included"}</Text>
           </View>
 
           {fromMovie && (
             <View style={S.contextBox}>
               <Ionicons name="film-outline" size={14} color="#AB8BFF" />
-              <Text style={S.contextTxt}>Create a free account to stream the movie. You'll be taken straight back after.</Text>
+              <Text style={S.contextTxt}>Create a free account to stream movie.</Text>
             </View>
           )}
 
@@ -202,8 +204,7 @@ const SignUp = () => {
             <Text style={S.label}>FULL NAME</Text>
             <View style={[S.row, !!errs.name && S.rowErr]}>
               <View style={S.iconBox}><Ionicons name="person-outline" size={16} color={errs.name ? "#ef4444" : "#AB8BFF"} /></View>
-              <TextInput style={S.input} value={name}
-                onChangeText={v => { setName(v); setE("name", ""); }}
+              <TextInput style={S.input} value={name} onChangeText={v => { setName(v); setE("name", ""); }}
                 placeholder="John Doe" placeholderTextColor="rgba(255,255,255,0.2)"
                 autoCapitalize="words" returnKeyType="next"
                 onSubmitEditing={() => emailRef.current?.focus()} blurOnSubmit={false}
@@ -278,13 +279,10 @@ const SignUp = () => {
             </View>
           )}
 
-          {/* Create Account */}
           <TouchableOpacity style={[S.btn, loading && { opacity: 0.6 }]} onPress={handleSignUp} disabled={loading} activeOpacity={0.85}>
-            <LinearGradient
-              colors={loading ? ["#333","#333"] : ["#c4a8ff","#AB8BFF","#7c3aed"]}
+            <LinearGradient colors={loading ? ["#333","#333"] : ["#c4a8ff","#AB8BFF","#7c3aed"]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={S.btnIn}>
-              {loading
-                ? <ActivityIndicator color="#fff" />
+              {loading ? <ActivityIndicator color="#fff" />
                 : <><Ionicons name={fromMovie ? "play" : "person-add-outline"} size={17} color="#0f0f12" />
                     <Text style={S.btnTxt}>{fromMovie ? "Create Account & Watch" : "Create Account"}</Text></>}
             </LinearGradient>
@@ -292,7 +290,6 @@ const SignUp = () => {
 
           <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR SIGN UP WITH</Text><View style={S.divLine} /></View>
 
-          {/* OAuth — TouchableOpacity works on native + web */}
           <View style={S.oauthRow}>
             <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
               <GoogleLogo size={24} />
@@ -306,12 +303,10 @@ const SignUp = () => {
 
           <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>ALREADY HAVE AN ACCOUNT?</Text><View style={S.divLine} /></View>
 
-          <TouchableOpacity
-            style={S.outBtn}
+          <TouchableOpacity style={S.outBtn}
             onPress={() => router.push(returnTo
               ? `/(auth)/sign-in?returnTo=${encodeURIComponent(returnTo)}&autoPlay=${autoPlay ?? "false"}` as any
-              : "/(auth)/sign-in")}
-            activeOpacity={0.85}>
+              : "/(auth)/sign-in")} activeOpacity={0.85}>
             <Ionicons name="log-in-outline" size={15} color="#AB8BFF" />
             <Text style={S.outBtnTxt}>Sign In</Text>
           </TouchableOpacity>
@@ -328,40 +323,40 @@ const SignUp = () => {
 export default SignUp;
 
 const S = StyleSheet.create({
-  root:            { flex: 1, backgroundColor: "#0a001e", overflow: "hidden" },
-  scroll:          { flexGrow: 1, padding: 22, paddingTop: Platform.OS === "web" ? 40 : 56, alignItems: "center" },
-  backBtn:         { alignSelf: "flex-start", width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  card:            { width: "100%", maxWidth: 480, backgroundColor: "rgba(12,4,30,0.95)", borderRadius: 22, padding: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", ...(Platform.OS === "web" ? { boxShadow: "0 32px 80px rgba(0,0,0,0.6)" } as any : {}) },
-  cardWide:        { maxWidth: 480 },
-  cardHead:        { alignItems: "center", marginBottom: 20 },
-  headIcon:        { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 12 },
-  heading:         { color: "#fff", fontSize: 24, fontWeight: "900", textAlign: "center", marginBottom: 4 },
-  sub:             { color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center" },
-  contextBox:      { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(171,139,255,0.08)", borderWidth: 1, borderColor: "rgba(171,139,255,0.2)", borderRadius: 12, padding: 12, marginBottom: 18 },
-  contextTxt:      { color: "rgba(171,139,255,0.85)", fontSize: 13, flex: 1, lineHeight: 18 },
-  errBox:          { flexDirection: "row", gap: 10, alignItems: "flex-start", backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)", borderRadius: 12, padding: 12, marginBottom: 16 },
-  errText:         { color: "#fca5a5", fontSize: 13, lineHeight: 18 },
-  errLink:         { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
-  field:           { marginBottom: 12 },
-  label:           { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "800", letterSpacing: 1.4, marginBottom: 7 },
-  row:             { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 6, paddingVertical: Platform.OS === "web" ? 4 : 2 },
-  rowErr:          { borderColor: "rgba(239,68,68,0.5)", backgroundColor: "rgba(239,68,68,0.04)" },
-  iconBox:         { width: 30, height: 30, borderRadius: 7, backgroundColor: "rgba(171,139,255,0.1)", alignItems: "center", justifyContent: "center", marginRight: 7 },
-  input:           { flex: 1, color: "#fff", fontSize: 14, paddingVertical: Platform.OS === "web" ? 10 : 11 },
-  fieldErr:        { color: "#ef4444", fontSize: 10, marginTop: 3, marginLeft: 3 },
-  strengthRow:     { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
-  bar:             { flex: 1, height: 3, borderRadius: 2 },
-  strengthLbl:     { fontSize: 10, marginLeft: 4, minWidth: 36, fontWeight: "800" },
-  btn:             { borderRadius: 12, overflow: "hidden", marginTop: 4, marginBottom: 14 },
-  btnIn:           { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14 },
-  btnTxt:          { color: "#0f0f12", fontWeight: "900", fontSize: 15 },
-  divRow:          { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
-  divLine:         { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
-  divTxt:          { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
-  oauthRow:        { flexDirection: "row", gap: 12, marginBottom: 14 },
-  oauthBtn:        { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1, paddingVertical: 11, minHeight: 46, backgroundColor: "rgba(243,244,246,0.08)", borderColor: "rgba(229,231,235,0.35)" },
-  oauthTxt:        { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
-  outBtn:          { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 11, paddingVertical: 13, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 14 },
-  outBtnTxt:       { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
-  terms:           { color: "rgba(255,255,255,0.18)", fontSize: 11, textAlign: "center", lineHeight: 16 },
+  root:        { flex: 1, backgroundColor: "#0a001e", overflow: "hidden" },
+  scroll:      { flexGrow: 1, padding: 22, paddingTop: Platform.OS === "web" ? 40 : 56, alignItems: "center" },
+  backBtn:     { alignSelf: "flex-start", width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", marginBottom: 20 },
+  card:        { width: "100%", maxWidth: 480, backgroundColor: "rgba(12,4,30,0.95)", borderRadius: 22, padding: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", ...(Platform.OS === "web" ? { boxShadow: "0 32px 80px rgba(0,0,0,0.6)" } as any : {}) },
+  cardWide:    { maxWidth: 480 },
+  cardHead:    { alignItems: "center", marginBottom: 20 },
+  headIcon:    { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  heading:     { color: "#fff", fontSize: 24, fontWeight: "900", textAlign: "center", marginBottom: 4 },
+  sub:         { color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center" },
+  contextBox:  { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(171,139,255,0.08)", borderWidth: 1, borderColor: "rgba(171,139,255,0.2)", borderRadius: 12, padding: 12, marginBottom: 18 },
+  contextTxt:  { color: "rgba(171,139,255,0.85)", fontSize: 13, flex: 1, lineHeight: 18 },
+  errBox:      { flexDirection: "row", gap: 10, alignItems: "flex-start", backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)", borderRadius: 12, padding: 12, marginBottom: 16 },
+  errText:     { color: "#fca5a5", fontSize: 13, lineHeight: 18 },
+  errLink:     { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
+  field:       { marginBottom: 12 },
+  label:       { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "800", letterSpacing: 1.4, marginBottom: 7 },
+  row:         { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 6, paddingVertical: Platform.OS === "web" ? 4 : 2 },
+  rowErr:      { borderColor: "rgba(239,68,68,0.5)", backgroundColor: "rgba(239,68,68,0.04)" },
+  iconBox:     { width: 30, height: 30, borderRadius: 7, backgroundColor: "rgba(171,139,255,0.1)", alignItems: "center", justifyContent: "center", marginRight: 7 },
+  input:       { flex: 1, color: "#fff", fontSize: 14, paddingVertical: Platform.OS === "web" ? 10 : 11 },
+  fieldErr:    { color: "#ef4444", fontSize: 10, marginTop: 3, marginLeft: 3 },
+  strengthRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
+  bar:         { flex: 1, height: 3, borderRadius: 2 },
+  strengthLbl: { fontSize: 10, marginLeft: 4, minWidth: 36, fontWeight: "800" },
+  btn:         { borderRadius: 12, overflow: "hidden", marginTop: 4, marginBottom: 14 },
+  btnIn:       { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14 },
+  btnTxt:      { color: "#0f0f12", fontWeight: "900", fontSize: 15 },
+  divRow:      { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  divLine:     { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
+  divTxt:      { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
+  oauthRow:    { flexDirection: "row", gap: 12, marginBottom: 14 },
+  oauthBtn:    { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1, paddingVertical: 11, minHeight: 46, backgroundColor: "rgba(243,244,246,0.08)", borderColor: "rgba(229,231,235,0.35)" },
+  oauthTxt:    { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
+  outBtn:      { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 11, paddingVertical: 13, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 14 },
+  outBtnTxt:   { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },
+  terms:       { color: "rgba(255,255,255,0.18)", fontSize: 11, textAlign: "center", lineHeight: 16 },
 });
