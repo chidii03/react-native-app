@@ -99,8 +99,7 @@ export async function POST(request: Request): Promise<Response> {
     const transporter = getTransport();
 
     if (!transporter) {
-      // On Vercel: means EMAIL_USER/EMAIL_PASS are not set
-      // On local Expo Go: nodemailer is empty module — expected, not a real error
+        
       return Response.json(
         { error: "Email service not available. Set EMAIL_USER and EMAIL_PASS in Vercel Environment Variables." },
         { status: 500 }

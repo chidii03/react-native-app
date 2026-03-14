@@ -125,18 +125,28 @@ const SignUp = () => {
     }
   };
 
+  // ── OAuth fix: on web, SDK returns a URL string that we must navigate to ──
   const handleOAuth = async (provider: OAuthProvider) => {
     try {
       const base =
         Platform.OS === "web" && typeof window !== "undefined"
           ? window.location.origin
           : "https://vietimeapp.vercel.app";
-      await account.createOAuth2Session(
-        provider,
-        `${base}/`,
-        `${base}/(auth)/sign-in`
-      );
+      const successUrl = `${base}/`;
+      const failureUrl = `${base}/(auth)/sign-in`;
+
+      if (Platform.OS === "web") {
+        const result = await (account as any).createOAuth2Session(
+          provider, successUrl, failureUrl
+        );
+        if (typeof result === "string" && result.startsWith("http")) {
+          window.location.href = result;
+        }
+      } else {
+        await account.createOAuth2Session(provider, successUrl, failureUrl);
+      }
     } catch (e: any) {
+      console.error("[OAuth]", e?.code, e?.message);
       toast.error("OAuth failed", String(e?.message ?? "Please try again"));
     }
   };
@@ -150,19 +160,12 @@ const SignUp = () => {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <PosterBg />
 
-      <ScrollView
-        contentContainerStyle={S.scroll}
-        keyboardShouldPersistTaps="always"
-        showsVerticalScrollIndicator={false}>
-
-        <TouchableOpacity style={S.backBtn}
-          onPress={() => router.canGoBack() ? router.back() : router.replace("/")}>
+      <ScrollView contentContainerStyle={S.scroll} keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={S.backBtn} onPress={() => router.canGoBack() ? router.back() : router.replace("/")}>
           <Ionicons name="arrow-back" size={18} color="#fff" />
         </TouchableOpacity>
 
         <View style={[S.card, isDesktop && S.cardWide]}>
-
-          {/* Header */}
           <View style={S.cardHead}>
             <LinearGradient colors={["rgba(171,139,255,0.25)","rgba(171,139,255,0.06)"]} style={S.headIcon}>
               <Ionicons name={fromMovie ? "play-circle" : "person-add"} size={24} color="#AB8BFF" />
@@ -184,11 +187,9 @@ const SignUp = () => {
               <View style={{ flex: 1 }}>
                 <Text style={S.errText}>{formErr}</Text>
                 {formErr.includes("sign in") && (
-                  <TouchableOpacity
-                    onPress={() => router.push(returnTo
-                      ? `/(auth)/sign-in?returnTo=${encodeURIComponent(returnTo)}&autoPlay=${autoPlay ?? "false"}` as any
-                      : "/(auth)/sign-in")}
-                    style={{ marginTop: 6 }}>
+                  <TouchableOpacity onPress={() => router.push(returnTo
+                    ? `/(auth)/sign-in?returnTo=${encodeURIComponent(returnTo)}&autoPlay=${autoPlay ?? "false"}` as any
+                    : "/(auth)/sign-in")} style={{ marginTop: 6 }}>
                     <Text style={S.errLink}>→ Sign in instead</Text>
                   </TouchableOpacity>
                 )}
@@ -291,20 +292,13 @@ const SignUp = () => {
 
           <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR SIGN UP WITH</Text><View style={S.divLine} /></View>
 
-          {/* ── OAuth buttons — TouchableOpacity works on BOTH native and web ── */}
+          {/* OAuth — TouchableOpacity works on native + web */}
           <View style={S.oauthRow}>
-            <TouchableOpacity
-              style={S.oauthBtn}
-              onPress={() => handleOAuth(OAuthProvider.Google)}
-              activeOpacity={0.8}>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
               <GoogleLogo size={24} />
               <Text style={S.oauthTxt}>Google</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={S.oauthBtn}
-              onPress={() => handleOAuth(OAuthProvider.Facebook)}
-              activeOpacity={0.8}>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
               <FacebookIcon size={22} />
               <Text style={S.oauthTxt}>Facebook</Text>
             </TouchableOpacity>
@@ -364,21 +358,8 @@ const S = StyleSheet.create({
   divRow:          { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   divLine:         { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   divTxt:          { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
-  // ── OAuth row: flex row, equal-width pill buttons ─────────────────────────
   oauthRow:        { flexDirection: "row", gap: 12, marginBottom: 14 },
-  oauthBtn:        {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingVertical: 11,
-    minHeight: 46,
-    backgroundColor: "rgba(243,244,246,0.08)",
-    borderColor: "rgba(229,231,235,0.35)",
-  },
+  oauthBtn:        { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1, paddingVertical: 11, minHeight: 46, backgroundColor: "rgba(243,244,246,0.08)", borderColor: "rgba(229,231,235,0.35)" },
   oauthTxt:        { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
   outBtn:          { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 11, paddingVertical: 13, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 14 },
   outBtnTxt:       { color: "#AB8BFF", fontWeight: "800", fontSize: 13 },

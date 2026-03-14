@@ -56,7 +56,7 @@ const getRawError = (e: any): string => {
   const code = e?.code;
   const msg  = String(e?.message ?? "");
   if (!code && !msg)
-    return "Network error — can't reach Appwrite.\nFix: Appwrite Console → Project → Settings → Platforms → Add Web → hostname: vietimeapp.vercel.app";
+    return "Network error — can't reach Appwrite.\nFix: Appwrite Console → Project → Settings → Platforms → Add Web platform.";
   if (code === 401) return "Wrong email or password. Please try again.";
   if (code === 404) return "Account not found. Please sign up first.";
   if (code === 409) return "Session conflict. Refresh and try again.";
@@ -117,18 +117,33 @@ const SignIn = () => {
     }
   };
 
+  // ── OAuth fix: on web, SDK returns a URL string that we must navigate to ──
   const handleOAuth = async (provider: OAuthProvider) => {
     try {
       const base =
         Platform.OS === "web" && typeof window !== "undefined"
           ? window.location.origin
           : "https://vietimeapp.vercel.app";
-      await account.createOAuth2Session(
-        provider,
-        `${base}/`,
-        `${base}/(auth)/sign-in`
-      );
+      const successUrl = `${base}/`;
+      const failureUrl = `${base}/(auth)/sign-in`;
+
+      if (Platform.OS === "web") {
+        // Appwrite web SDK returns the provider URL as a string on some versions.
+        // Cast to any to handle both: redirect internally OR return a URL string.
+        const result = await (account as any).createOAuth2Session(
+          provider, successUrl, failureUrl
+        );
+        // If it returned a URL string, navigate to it
+        if (typeof result === "string" && result.startsWith("http")) {
+          window.location.href = result;
+        }
+        // If result is undefined/null, the SDK handled the redirect itself — no action needed
+      } else {
+        // Native: SDK opens in-app browser automatically
+        await account.createOAuth2Session(provider, successUrl, failureUrl);
+      }
     } catch (e: any) {
+      console.error("[OAuth]", e?.code, e?.message);
       toast.error("OAuth failed", String(e?.message ?? "Please try again"));
     }
   };
@@ -144,15 +159,13 @@ const SignIn = () => {
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}>
 
-          <TouchableOpacity
-            style={S.backBtn}
+          <TouchableOpacity style={S.backBtn}
             onPress={() => router.canGoBack() ? router.back() : router.replace("/")}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </TouchableOpacity>
 
           <View style={[S.card, width > 768 && S.cardWide]}>
 
-            {/* Header */}
             <View style={S.cardHead}>
               <LinearGradient colors={["rgba(171,139,255,0.25)", "rgba(171,139,255,0.06)"]} style={S.headIcon}>
                 <Ionicons name={fromMovie ? "play-circle" : "film"} size={26} color="#AB8BFF" />
@@ -230,10 +243,8 @@ const SignIn = () => {
               {!!pwErr && <Text style={S.fieldErr}>{pwErr}</Text>}
             </View>
 
-            {/* Sign In button */}
-            <TouchableOpacity
-              style={[S.btn, loading && { opacity: 0.6 }]}
-              onPress={handleSignIn} disabled={loading} activeOpacity={0.85}>
+            {/* Sign In */}
+            <TouchableOpacity style={[S.btn, loading && { opacity: 0.6 }]} onPress={handleSignIn} disabled={loading} activeOpacity={0.85}>
               <LinearGradient
                 colors={loading ? ["#333","#333"] : ["#c4a8ff","#AB8BFF","#7c3aed"]}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={S.btnIn}>
@@ -246,20 +257,13 @@ const SignIn = () => {
 
             <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR</Text><View style={S.divLine} /></View>
 
-            {/* ── OAuth buttons — TouchableOpacity works on BOTH native and web ── */}
+            {/* OAuth — TouchableOpacity works on native + web */}
             <View style={S.oauthRow}>
-              <TouchableOpacity
-                style={S.oauthBtn}
-                onPress={() => handleOAuth(OAuthProvider.Google)}
-                activeOpacity={0.8}>
+              <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
                 <GoogleLogo size={24} />
                 <Text style={S.oauthTxt}>Google</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={S.oauthBtn}
-                onPress={() => handleOAuth(OAuthProvider.Facebook)}
-                activeOpacity={0.8}>
+              <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
                 <FacebookIcon size={22} />
                 <Text style={S.oauthTxt}>Facebook</Text>
               </TouchableOpacity>
@@ -281,7 +285,6 @@ const SignIn = () => {
             <TouchableOpacity onPress={() => router.replace("/")} style={S.skip}>
               <Text style={S.skipTxt}>Continue browsing without signing in</Text>
             </TouchableOpacity>
-
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -321,21 +324,8 @@ const S = StyleSheet.create({
   divRow:          { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
   divLine:         { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   divTxt:          { color: "rgba(255,255,255,0.2)", fontSize: 9, fontWeight: "800" },
-  // ── OAuth row: flex row, equal-width buttons ──────────────────────────────
   oauthRow:        { flexDirection: "row", gap: 12, marginBottom: 18 },
-  oauthBtn:        {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingVertical: 11,
-    minHeight: 46,
-    backgroundColor: "rgba(243,244,246,0.08)",
-    borderColor: "rgba(229,231,235,0.35)",
-  },
+  oauthBtn:        { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 999, borderWidth: 1, paddingVertical: 11, minHeight: 46, backgroundColor: "rgba(243,244,246,0.08)", borderColor: "rgba(229,231,235,0.35)" },
   oauthTxt:        { fontSize: 14, fontWeight: "800", color: "#f9fafb" },
   outBtn:          { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 14, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginBottom: 8 },
   outBtnTxt:       { color: "#AB8BFF", fontWeight: "800", fontSize: 14 },
