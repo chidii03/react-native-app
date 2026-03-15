@@ -1,11 +1,9 @@
 // context/AuthContext.tsx
-
 import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { ID, OAuthProvider, Query } from "react-native-appwrite";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { account, appwriteIds, databases } from "../services/appwriteConfig";
 
-// ── Owner accounts — NEVER charged, always have full access ──────────────────
 export const OWNER_EMAILS = ["chidiokwu795@gmail.com"];
 
 export interface AuthUser {
@@ -13,23 +11,24 @@ export interface AuthUser {
   name: string;
   email: string;
   emailVerification: boolean;
+  registration?: string;
   prefs?: Record<string, any>;
   [key: string]: any;
 }
 
 interface AuthCtx {
-  user:             AuthUser | null;
-  isLoading:        boolean;
-  isLoggedIn:       boolean;
-  isSubscribed:     boolean;   // true = can watch movies
-  isOwner:          boolean;   // true = chidi's account
-  trialStartDate:   string | null;
-  login:            (email: string, password: string) => Promise<{ username: string }>;
-  register:         (email: string, password: string, name: string) => Promise<{ username: string }>;
-  loginWithOAuth:   (provider: OAuthProvider) => Promise<void>;
-  logout:           () => Promise<void>;
-  updateDisplayName:(name: string) => Promise<void>;
-  refreshUser:      () => Promise<void>;
+  user:              AuthUser | null;
+  isLoading:         boolean;
+  isLoggedIn:        boolean;
+  isSubscribed:      boolean;
+  isOwner:           boolean;
+  trialStartDate:    string | null;
+  login:             (email: string, password: string) => Promise<{ username: string }>;
+  register:          (email: string, password: string, name: string) => Promise<{ username: string }>;
+  loginWithOAuth:    (provider: OAuthProvider) => Promise<void>;
+  logout:            () => Promise<void>;
+  updateDisplayName: (name: string) => Promise<void>;
+  refreshUser:       () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthCtx>({
@@ -53,48 +52,80 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
     ),
   ]);
 
-const safeStorageGet = async (key: string): Promise<string | null> => {
+const safeGet = async (key: string): Promise<string | null> => {
   try { return await withTimeout(AsyncStorage.getItem(key), 1500); } catch { return null; }
 };
-const safeStorageSet = async (key: string, value: string): Promise<void> => {
+const safeSet = async (key: string, value: string): Promise<void> => {
   try { await withTimeout(AsyncStorage.setItem(key, value), 1500); } catch {}
 };
-
 const initTrial = async (): Promise<string> => {
-  const stored = await safeStorageGet(TRIAL_KEY);
+  const stored = await safeGet(TRIAL_KEY);
   if (stored) return stored;
   const now = new Date().toISOString();
-  await safeStorageSet(TRIAL_KEY, now);
+  await safeSet(TRIAL_KEY, now);
   return now;
 };
 
-const checkIsOwner = (email: string): boolean =>
-  OWNER_EMAILS.includes(email.trim().toLowerCase());
-
-const checkIsSubscribed = (user: AuthUser | null): boolean => {
+const checkIsOwner      = (email: string) => OWNER_EMAILS.includes(email.trim().toLowerCase());
+const checkIsSubscribed = (user: AuthUser | null) => {
   if (!user) return false;
-  if (checkIsOwner(user.email)) return true;  // Owner always subscribed
+  if (checkIsOwner(user.email)) return true;
   return user.prefs?.subscribed === true;
+};
+
+// ── Fetch Google profile picture from Appwrite OAuth identities ───────────────
+// FIX TS2339: cast the result to `any` so TypeScript doesn't complain about
+// `identities` not existing on `unknown`. The Appwrite SDK types this as
+// a generic response object but the property IS there at runtime.
+const fetchGoogleAvatar = async (): Promise<string | null> => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await withTimeout((account as any).listIdentities(), 3000) as any;
+    const identities: any[] = result?.identities ?? [];
+    const google = identities.find((id: any) => id.provider === "google");
+    if (!google?.providerAccessToken) return null;
+
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${google.providerAccessToken}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    return (data?.picture as string) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+// ── Sync Google avatar to Appwrite prefs ──────────────────────────────────────
+const syncGoogleAvatar = async (u: AuthUser): Promise<AuthUser> => {
+  if (u.prefs?.avatar_url) return u; // already has a photo, skip
+  const googlePic = await fetchGoogleAvatar();
+  if (!googlePic) return u;
+  try {
+    const merged = { ...(u.prefs ?? {}), avatar_url: googlePic };
+    await withTimeout(account.updatePrefs(merged as any), 4000);
+    return { ...u, prefs: merged };
+  } catch {
+    return { ...u, prefs: { ...(u.prefs ?? {}), avatar_url: googlePic } };
+  }
 };
 
 const syncUserToDB = async (userId: string, name: string, email: string) => {
   const { databaseId, usersCollectionId } = appwriteIds;
   if (!databaseId || !usersCollectionId) return;
-  const docId = `user-${userId}`;
+  const docId  = `user-${userId}`;
   const payload = {
-    user_id: userId,
-    name: (name || "Movie Fan").trim(),
-    email: email.trim().toLowerCase(),
-    joined_at: new Date().toISOString(),
-    plan: "free",
-    is_active: true,
+    user_id:    userId,
+    name:       (name || "Movie Fan").trim(),
+    email:      email.trim().toLowerCase(),
+    joined_at:  new Date().toISOString(),
+    plan:       "free",
+    is_active:  true,
   };
   try {
     try { await databases.getDocument(databaseId, usersCollectionId, docId); }
     catch (e: any) {
-      if (e?.code === 404) {
-        await databases.createDocument(databaseId, usersCollectionId, docId, payload);
-      }
+      if (e?.code === 404) await databases.createDocument(databaseId, usersCollectionId, docId, payload);
     }
   } catch (e: any) {
     console.error("[Auth] syncUserToDB:", e?.code, e?.message);
@@ -108,12 +139,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loadUser = async (): Promise<AuthUser | null> => {
     try {
-      const u = (await withTimeout(account.get(), 4000)) as AuthUser;
+      let u = (await withTimeout(account.get(), 4000)) as AuthUser;
+      u = await syncGoogleAvatar(u); // auto-pull Google pic on boot
       return u;
     } catch (e: any) {
-      if (!String(e?.message ?? "").includes("__TIMEOUT_") && e?.code !== 401) {
+      if (!String(e?.message ?? "").includes("__TIMEOUT_") && e?.code !== 401)
         console.warn("[Auth] boot:", e?.code, e?.message);
-      }
       return null;
     }
   };
@@ -129,7 +160,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setTrialStart(t);
         syncUserToDB(u.$id, u.name, u.email).catch(() => {});
       } else {
-        const t = await safeStorageGet(TRIAL_KEY);
+        const t = await safeGet(TRIAL_KEY);
         setTrialStart(t);
       }
       setLoading(false);
@@ -146,7 +177,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const em = email.trim().toLowerCase();
     try { await account.deleteSession("current"); } catch {}
     await account.createEmailPasswordSession(em, password);
-    const u = (await withTimeout(account.get(), 8000)) as AuthUser;
+    let u = (await withTimeout(account.get(), 8000)) as AuthUser;
+    u = await syncGoogleAvatar(u);
     setUser(u);
     const t = await initTrial();
     setTrialStart(t);
@@ -167,21 +199,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return { username: n };
   };
 
-  // ── OAuth: build URL manually on web for guaranteed redirect ─────────────
   const loginWithOAuth = async (provider: OAuthProvider) => {
-    const base =
-      typeof window !== "undefined" ? window.location.origin : "https://movietimeapp.vercel.app";
-    const endpoint  = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT  ?? "https://cloud.appwrite.io/v1";
-    const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "";
-
+    const endpoint  = "https://fra.cloud.appwrite.io/v1";
+    const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "699381200024b709931f";
     if (typeof window !== "undefined") {
-      const params = new URLSearchParams({
-        project: projectId,
-        success: `${base}/`,
-        failure: `${base}/(auth)/sign-in`,
-      });
+      const base   = window.location.origin;
+      const params = new URLSearchParams({ project: projectId, success: `${base}/`, failure: `${base}/(auth)/sign-in` });
       window.location.href = `${endpoint}/account/sessions/oauth2/${provider}?${params}`;
     } else {
+      const base = "https://movietimeapp.vercel.app";
       await account.createOAuth2Session(provider, `${base}/`, `${base}/(auth)/sign-in`);
     }
   };
@@ -199,13 +225,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     syncUserToDB(user.$id, n, user.email).catch(() => {});
   };
 
-  const isOwner      = checkIsOwner(user?.email ?? "");
-  const isSubscribed = checkIsSubscribed(user);
-
   return (
     <AuthContext.Provider value={{
       user, isLoading, isLoggedIn: !!user,
-      isSubscribed, isOwner, trialStartDate: trialStart,
+      isSubscribed: checkIsSubscribed(user),
+      isOwner: checkIsOwner(user?.email ?? ""),
+      trialStartDate: trialStart,
       login, register, loginWithOAuth, logout, updateDisplayName, refreshUser,
     }}>
       {children}

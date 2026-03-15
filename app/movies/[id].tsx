@@ -38,7 +38,6 @@ const Stars = ({ rating }: { rating: number }) => {
   );
 };
 
-// ── Open URL cross-platform ───────────────────────────────────────────────────
 const openUrl = (url: string) => {
   if (!url) return;
   if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -49,10 +48,9 @@ const openUrl = (url: string) => {
   }
 };
 
-// ── Payment links ─────────────────────────────────────────────────────────────
 const PAYMENT_LINKS = {
-  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",      yearly: "https://paystack.shop/pay/mkghesxsg2" },
-  flutterwave: { monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn",  yearly: "https://flutterwave.com/pay/cbcapoz0v5gk" },
+  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",     yearly: "https://paystack.shop/pay/mkghesxsg2" },
+  flutterwave: { monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn", yearly: "https://flutterwave.com/pay/cbcapoz0v5gk" },
   stripe:      {
     monthly: process.env.EXPO_PUBLIC_STRIPE_MONTHLY_URL ?? "",
     yearly:  process.env.EXPO_PUBLIC_STRIPE_YEARLY_URL  ?? "",
@@ -60,20 +58,23 @@ const PAYMENT_LINKS = {
 };
 
 const NGN_TO: Record<string, number> = { NGN: 1, USD: 1/1600, EUR: 1/1720, GBP: 1/2025 };
-const SYM:    Record<string, string>  = { NGN: "₦", USD: "$", EUR: "€", GBP: "£" };
-
+const SYM:   Record<string, string>  = { NGN: "₦", USD: "$", EUR: "€", GBP: "£" };
 type PlanId    = "monthly" | "yearly";
 type GatewayId = "paystack" | "flutterwave" | "stripe";
-
 const fmt = (ngn: number, cur: string) => {
   const n = ngn * NGN_TO[cur];
   return cur === "NGN" ? `${SYM[cur]}${n.toLocaleString()}` : `${SYM[cur]}${n.toFixed(2)}`;
 };
 
-// ── Inline Paywall Modal ──────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PaywallModal — FIXED:
+//   • Close (×) button is positioned in the OVERLAY (outside the sheet)
+//     so it's always visible even when the sheet is 100% height.
+//   • Sheet content is in a ScrollView so nothing is cut off.
+//   • Web: centred rounded modal. Mobile: bottom sheet.
+// ─────────────────────────────────────────────────────────────────────────────
 const PaywallModal = ({
-  visible, onClose,
-  userEmail, userId, userName,
+  visible, onClose, userEmail, userId, userName,
 }: {
   visible: boolean; onClose: () => void;
   userEmail: string; userId: string; userName: string;
@@ -82,6 +83,8 @@ const PaywallModal = ({
   const [currency, setCurrency] = useState<"NGN"|"USD"|"EUR"|"GBP">("NGN");
   const [gateway,  setGateway]  = useState<GatewayId>("paystack");
 
+  const isWeb = Platform.OS === "web";
+
   const handleCurrencyChange = (c: typeof currency) => {
     setCurrency(c);
     if (c !== "NGN") setGateway("stripe");
@@ -89,8 +92,7 @@ const PaywallModal = ({
   };
 
   const pay = (gw: GatewayId) => {
-    const links   = PAYMENT_LINKS[gw];
-    const baseUrl = links[plan];
+    const baseUrl = PAYMENT_LINKS[gw][plan];
     if (!baseUrl) {
       Alert.alert("Not configured", "This payment option isn't set up yet. Try another.");
       return;
@@ -106,99 +108,105 @@ const PaywallModal = ({
   ];
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType={isWeb ? "fade" : "slide"}
+      statusBarTranslucent onRequestClose={onClose}>
+
+      {/* ── OVERLAY ── */}
       <View style={PW.overlay}>
-        <View style={PW.sheet}>
-          <TouchableOpacity style={PW.closeBtn} onPress={onClose}>
-            <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
-          </TouchableOpacity>
 
-          {/* Hero */}
-          <LinearGradient colors={["rgba(171,139,255,0.2)","rgba(171,139,255,0.04)"]} style={PW.iconWrap}>
-            <Ionicons name="diamond" size={32} color="#AB8BFF" />
-          </LinearGradient>
-          <Text style={PW.title}>Subscribe to Watch</Text>
-          <Text style={PW.sub}>
-            Get full access to stream all movies{"\n"}starting from{" "}
-            <Text style={{ color: "#AB8BFF", fontWeight: "900" }}>₦1,600 / month</Text>
-          </Text>
+        {/* Tap outside to dismiss */}
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
 
-          {/* Features */}
-          {["Unlimited movie streaming","Personal watchlist","HD quality player","Cancel anytime"].map(f => (
-            <View key={f} style={PW.featureRow}>
-              <Ionicons name="checkmark-circle" size={16} color="#4ade80" />
-              <Text style={PW.featureTxt}>{f}</Text>
-            </View>
-          ))}
+        {/* ── CLOSE BUTTON — lives in the OVERLAY, not inside the sheet.
+              This means it is ALWAYS visible at 100% sheet height too. ── */}
+        <TouchableOpacity style={PW.closeBtn} onPress={onClose} hitSlop={{ top: 10, left: 10, right: 10, bottom: 10 }}>
+          <Ionicons name="close" size={20} color="#fff" />
+        </TouchableOpacity>
 
-          {/* Plan toggle */}
-          <View style={PW.planToggle}>
-            {ngnPlans.map(p => (
-              <TouchableOpacity key={p.id} onPress={() => setPlan(p.id)}
-                style={[PW.planChip, plan === p.id && PW.planChipActive]} activeOpacity={0.8}>
-                <Text style={[PW.planChipTxt, plan === p.id && { color: "#AB8BFF" }]}>
-                  {p.label}
-                </Text>
-                <Text style={[PW.planChipPrice, plan === p.id && { color: "#fff" }]}>
-                  {fmt(p.ngn, currency)}
-                </Text>
-                {p.id === "yearly" && (
-                  <View style={PW.saveBadge}><Text style={PW.saveBadgeTxt}>Save 33%</Text></View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
+        {/* ── SHEET ── */}
+        <View style={[PW.sheet, isWeb && PW.sheetWeb]}>
+          <ScrollView showsVerticalScrollIndicator={false}
+            contentContainerStyle={PW.scrollContent} bounces={false}>
 
-          {/* Currency selector */}
-          <View style={PW.currencyRow}>
-            {(["NGN","USD","EUR","GBP"] as const).map(c => (
-              <TouchableOpacity key={c} onPress={() => handleCurrencyChange(c)}
-                style={[PW.currChip, currency === c && PW.currChipActive]} activeOpacity={0.8}>
-                <Text style={[PW.currTxt, currency === c && { color: "#AB8BFF" }]}>{SYM[c]}{c}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+            <LinearGradient colors={["rgba(171,139,255,0.2)","rgba(171,139,255,0.04)"]} style={PW.iconWrap}>
+              <Ionicons name="diamond" size={32} color="#AB8BFF" />
+            </LinearGradient>
+            <Text style={PW.title}>Subscribe to Watch</Text>
+            <Text style={PW.sub}>
+              Get full access to stream all movies{"\n"}starting from{" "}
+              <Text style={{ color: "#AB8BFF", fontWeight: "900" }}>₦1,600 / month</Text>
+            </Text>
 
-          {/* NGN gateways */}
-          {currency === "NGN" && (
-            <>
-              <TouchableOpacity style={PW.paystackBtn} onPress={() => pay("paystack")} activeOpacity={0.85}>
-                <View style={[PW.gwDot, { backgroundColor: "#00c3f7" }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={PW.gatewayTitle}>Pay with Paystack</Text>
-                  <Text style={PW.gatewaySubtitle}>Cards, Bank Transfer, USSD</Text>
-                </View>
-                <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={PW.flutterwaveBtn} onPress={() => pay("flutterwave")} activeOpacity={0.85}>
-                <View style={[PW.gwDot, { backgroundColor: "#f5a623" }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={PW.gatewayTitle}>Pay with Flutterwave</Text>
-                  <Text style={PW.gatewaySubtitle}>Cards, Bank, Mobile Money</Text>
-                </View>
-                <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* Stripe for other currencies */}
-          {currency !== "NGN" && (
-            <TouchableOpacity style={PW.stripeBtn} onPress={() => pay("stripe")} activeOpacity={0.85}>
-              <View style={[PW.gwDot, { backgroundColor: "#6772e5" }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={PW.gatewayTitle}>Pay with Stripe</Text>
-                <Text style={PW.gatewaySubtitle}>Credit / Debit Card · {currency}</Text>
+            {["Unlimited movie streaming","Personal watchlist","HD quality player","Cancel anytime"].map(f => (
+              <View key={f} style={PW.featureRow}>
+                <Ionicons name="checkmark-circle" size={16} color="#4ade80" />
+                <Text style={PW.featureTxt}>{f}</Text>
               </View>
-              <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, currency)}</Text>
-            </TouchableOpacity>
-          )}
+            ))}
 
-          {/* See all plans */}
-          <TouchableOpacity style={PW.fullPageBtn}
-            onPress={() => { onClose(); router.push("/paywall"); }} activeOpacity={0.8}>
-            <Text style={PW.fullPageTxt}>See all plans & currencies →</Text>
-          </TouchableOpacity>
+            {/* Plan toggle */}
+            <View style={PW.planToggle}>
+              {ngnPlans.map(p => (
+                <TouchableOpacity key={p.id} onPress={() => setPlan(p.id)}
+                  style={[PW.planChip, plan === p.id && PW.planChipActive]} activeOpacity={0.8}>
+                  <Text style={[PW.planChipTxt, plan === p.id && { color: "#AB8BFF" }]}>{p.label}</Text>
+                  <Text style={[PW.planChipPrice, plan === p.id && { color: "#fff" }]}>
+                    {fmt(p.ngn, currency)}
+                  </Text>
+                  {p.id === "yearly" && (
+                    <View style={PW.saveBadge}><Text style={PW.saveBadgeTxt}>Save 33%</Text></View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Currency */}
+            <View style={PW.currencyRow}>
+              {(["NGN","USD","EUR","GBP"] as const).map(c => (
+                <TouchableOpacity key={c} onPress={() => handleCurrencyChange(c)}
+                  style={[PW.currChip, currency === c && PW.currChipActive]} activeOpacity={0.8}>
+                  <Text style={[PW.currTxt, currency === c && { color: "#AB8BFF" }]}>{SYM[c]}{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {currency === "NGN" && (
+              <>
+                <TouchableOpacity style={PW.paystackBtn} onPress={() => pay("paystack")} activeOpacity={0.85}>
+                  <View style={[PW.gwDot, { backgroundColor: "#00c3f7" }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={PW.gatewayTitle}>Pay with Paystack</Text>
+                    <Text style={PW.gatewaySubtitle}>Cards, Bank Transfer, USSD</Text>
+                  </View>
+                  <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={PW.flutterwaveBtn} onPress={() => pay("flutterwave")} activeOpacity={0.85}>
+                  <View style={[PW.gwDot, { backgroundColor: "#f5a623" }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={PW.gatewayTitle}>Pay with Flutterwave</Text>
+                    <Text style={PW.gatewaySubtitle}>Cards, Bank, Mobile Money</Text>
+                  </View>
+                  <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {currency !== "NGN" && (
+              <TouchableOpacity style={PW.stripeBtn} onPress={() => pay("stripe")} activeOpacity={0.85}>
+                <View style={[PW.gwDot, { backgroundColor: "#6772e5" }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={PW.gatewayTitle}>Pay with Stripe</Text>
+                  <Text style={PW.gatewaySubtitle}>Credit / Debit Card · {currency}</Text>
+                </View>
+                <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, currency)}</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={PW.fullPageBtn}
+              onPress={() => { onClose(); router.push("/paywall"); }} activeOpacity={0.8}>
+              <Text style={PW.fullPageTxt}>See all plans & currencies →</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -206,15 +214,47 @@ const PaywallModal = ({
 };
 
 const PW = StyleSheet.create({
-  overlay:        { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
-  sheet:          { backgroundColor: "#150030", borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40, borderWidth: 1, borderColor: "rgba(171,139,255,0.2)", alignItems: "center" },
-  closeBtn:       { position: "absolute", top: 14, right: 16, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  overlay:        {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.88)",
+    justifyContent: Platform.OS === "web" ? "center" : "flex-end",
+    alignItems: "center",
+  },
+  // ── KEY FIX: close button is in the overlay (zIndex 999), not inside the sheet ──
+  closeBtn:       {
+    position: "absolute",
+    top: Platform.OS === "web" ? 24 : 54,
+    right: 18,
+    zIndex: 999,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(20,0,44,0.95)",
+    borderWidth: 1.5,
+    borderColor: "rgba(171,139,255,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheet:          {
+    backgroundColor: "#150030",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(171,139,255,0.2)",
+    width: "100%",
+    maxHeight: "88%",
+  },
+  sheetWeb:       {
+    borderRadius: 24,
+    maxWidth: 560,
+    maxHeight: "90%",
+  },
+  scrollContent:  { padding: 24, paddingBottom: 44, alignItems: "center" },
   iconWrap:       { width: 68, height: 68, borderRadius: 22, alignItems: "center", justifyContent: "center", marginTop: 8, marginBottom: 12 },
   title:          { color: "#fff", fontSize: 22, fontWeight: "900", textAlign: "center", marginBottom: 6 },
   sub:            { color: "rgba(255,255,255,0.5)", fontSize: 14, textAlign: "center", lineHeight: 22, marginBottom: 16 },
   featureRow:     { flexDirection: "row", alignItems: "center", gap: 10, alignSelf: "flex-start", marginBottom: 7, paddingHorizontal: 4 },
   featureTxt:     { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
-  // Plan toggle
   planToggle:     { flexDirection: "row", gap: 10, width: "100%", marginTop: 14, marginBottom: 10 },
   planChip:       { flex: 1, borderRadius: 14, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.04)", padding: 12, alignItems: "center", gap: 3 },
   planChipActive: { borderColor: "#AB8BFF", backgroundColor: "rgba(171,139,255,0.1)" },
@@ -222,12 +262,10 @@ const PW = StyleSheet.create({
   planChipPrice:  { color: "rgba(255,255,255,0.9)", fontSize: 18, fontWeight: "900" },
   saveBadge:      { backgroundColor: "rgba(74,222,128,0.15)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   saveBadgeTxt:   { color: "#4ade80", fontSize: 9, fontWeight: "800" },
-  // Currency
   currencyRow:    { flexDirection: "row", gap: 6, marginBottom: 14, alignSelf: "flex-start" },
   currChip:       { borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 10, paddingVertical: 5, backgroundColor: "rgba(255,255,255,0.04)" },
   currChipActive: { borderColor: "#AB8BFF", backgroundColor: "rgba(171,139,255,0.12)" },
   currTxt:        { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700" },
-  // Gateway buttons
   paystackBtn:    { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(0,195,247,0.08)", borderWidth: 1, borderColor: "rgba(0,195,247,0.3)", borderRadius: 14, padding: 14, marginTop: 4 },
   flutterwaveBtn: { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(245,166,35,0.08)", borderWidth: 1, borderColor: "rgba(245,166,35,0.3)", borderRadius: 14, padding: 14, marginTop: 10 },
   stripeBtn:      { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(103,114,229,0.08)", borderWidth: 1, borderColor: "rgba(103,114,229,0.3)", borderRadius: 14, padding: 14, marginTop: 4 },
@@ -324,7 +362,6 @@ const SP = StyleSheet.create({
   disclaimerTxt:  { color: "rgba(255,255,255,0.25)", fontSize: 10, flex: 1, lineHeight: 14 },
 });
 
-// ── Sub-grids ─────────────────────────────────────────────────────────────────
 const StatsGrid = ({ movie, width }: { movie: any; width: number }) => {
   const cols = width >= 768 ? 4 : width >= 600 ? 3 : 2;
   const cellW = (width - 40 - (cols - 1) * 10) / cols;
@@ -389,7 +426,6 @@ const SimilarGrid = ({ movies, width }: { movies: any[]; width: number }) => {
   );
 };
 
-// ── Main component ────────────────────────────────────────────────────────────
 const MovieDetails = () => {
   const { id }       = useLocalSearchParams();
   const { autoPlay } = useLocalSearchParams<{ autoPlay?: string }>();
@@ -416,15 +452,13 @@ const MovieDetails = () => {
   const closeTop = Math.max(insets.top + (isTablet ? 12 : 6), isTablet ? 24 : 8);
 
   useEffect(() => {
-    if (movie && isLoggedIn && user?.$id) {
+    if (movie && isLoggedIn && user?.$id)
       checkIsSaved(user.$id, movie.id).then(setIsSaved).catch(() => {});
-    }
   }, [movie?.id, isLoggedIn, user?.$id]);
 
   useEffect(() => {
-    if (!authLoading && isSubscribed && autoPlay === "true" && movie) {
+    if (!authLoading && isSubscribed && autoPlay === "true" && movie)
       setShowStream(true);
-    }
   }, [authLoading, isSubscribed, autoPlay, movie?.id]);
 
   const handleWatch = () => {
@@ -471,14 +505,8 @@ const MovieDetails = () => {
     <View style={S.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* Inline Paywall Modal */}
-      <PaywallModal
-        visible={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        userEmail={user?.email ?? ""}
-        userId={user?.$id ?? ""}
-        userName={user?.name ?? ""}
-      />
+      <PaywallModal visible={showPaywall} onClose={() => setShowPaywall(false)}
+        userEmail={user?.email ?? ""} userId={user?.$id ?? ""} userName={user?.name ?? ""} />
 
       {/* Trailer Modal */}
       <Modal visible={playTrailer} transparent animationType="fade" statusBarTranslucent>
@@ -532,14 +560,12 @@ const MovieDetails = () => {
       <ScrollView bounces={false} showsVerticalScrollIndicator={false}
         style={S.scrollView} contentContainerStyle={S.scrollContent}>
 
-        {/* Hero */}
         <View style={{ height: 480 }}>
           <ImageBackground
             source={{ uri: `https://image.tmdb.org/t/p/original${movie.backdrop_path || movie.poster_path}` }}
             style={StyleSheet.absoluteFill} resizeMode="cover" />
           <LinearGradient colors={["rgba(0,0,0,0.3)","rgba(0,0,0,0.05)","#0f0f12"]}
             locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
-
           <SafeAreaView edges={["top"]}>
             <View style={S.heroNav}>
               <TouchableOpacity style={S.navBtn} onPress={() => router.back()}>
@@ -553,7 +579,6 @@ const MovieDetails = () => {
               )}
             </View>
           </SafeAreaView>
-
           <View style={S.heroBottom}>
             <View style={S.heroContent}>
               <Image source={{ uri: TMDB_IMAGE(movie.poster_path, "w342") ?? "" }}
@@ -572,8 +597,6 @@ const MovieDetails = () => {
                 </View>
               </View>
             </View>
-
-            {/* CTA row — purple button, original Trailer + Save sizes */}
             <View style={S.ctaRow}>
               <TouchableOpacity style={S.watchBtn} onPress={handleWatch} activeOpacity={0.85}>
                 <LinearGradient
@@ -584,20 +607,15 @@ const MovieDetails = () => {
                     : <>
                         <Ionicons name={showStream ? "stop-circle" : isSubscribed ? "play" : "diamond-outline"} size={17} color="#0f0f12" />
                         <Text style={S.watchBtnTxt}>
-                          {showStream ? "Close Player"
-                            : !isLoggedIn ? "Sign In to Watch"
-                            : isSubscribed ? "Watch Movie"
-                            : "Subscribe to Watch"}
+                          {showStream ? "Close Player" : !isLoggedIn ? "Sign In to Watch" : isSubscribed ? "Watch Movie" : "Subscribe to Watch"}
                         </Text>
                       </>}
                 </LinearGradient>
               </TouchableOpacity>
-
               <TouchableOpacity style={S.trailerBtn} onPress={() => setPlayTrailer(true)} activeOpacity={0.85}>
                 <Ionicons name="film-outline" size={17} color="#fff" />
                 <Text style={S.trailerBtnTxt}>Trailer</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={[S.saveBtn, isSaved && S.saveBtnActive]}
                 onPress={handleSave} disabled={saving} activeOpacity={0.85}>
                 {saving
@@ -609,7 +627,6 @@ const MovieDetails = () => {
           </View>
         </View>
 
-        {/* Subscribe bar for non-subscribers */}
         {!authLoading && isLoggedIn && !isSubscribed && (
           <TouchableOpacity style={S.subscribeBar} onPress={() => setShowPaywall(true)} activeOpacity={0.85}>
             <Ionicons name="diamond-outline" size={14} color="#AB8BFF" />
@@ -617,8 +634,6 @@ const MovieDetails = () => {
             <Text style={S.subscribeBarCta}>Subscribe →</Text>
           </TouchableOpacity>
         )}
-
-        {/* Sign-in bar for guests */}
         {!authLoading && !isLoggedIn && (
           <TouchableOpacity style={S.signInBar} onPress={() => router.push(
             `/(auth)/sign-in?returnTo=${encodeURIComponent(`/movies/${id}`)}&autoPlay=true` as any)}>
@@ -628,14 +643,12 @@ const MovieDetails = () => {
           </TouchableOpacity>
         )}
 
-        {/* Genres */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.genreRow}>
           {movie.genres?.map((g: any) => (
             <View key={g.id} style={S.genrePill}><Text style={S.genrePillTxt}>{g.name}</Text></View>
           ))}
         </ScrollView>
 
-        {/* Tabs */}
         <View style={S.tabs}>
           {(["info","cast","similar"] as const).map(tab => (
             <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}

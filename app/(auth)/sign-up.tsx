@@ -9,6 +9,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { OAuthProvider } from "react-native-appwrite";
+import * as Linking from "expo-linking";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/Toast";
 import { account } from "../../services/appwriteConfig";
@@ -34,38 +35,33 @@ const PosterBg = () => {
   const items = Array.from({ length: cols * rows }, (_, i) => POSTERS[i % POSTERS.length]);
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <View style={{
-        position: "absolute", flexDirection: "row", flexWrap: "wrap",
-        width: cols * (pw + 4), transform: [{ rotate: "-8deg" }],
-        left: -pw, top: -ph * 0.5,
-      }}>
+      <View style={{ position: "absolute", flexDirection: "row", flexWrap: "wrap", width: cols * (pw + 4), transform: [{ rotate: "-8deg" }], left: -pw, top: -ph * 0.5 }}>
         {items.map((src, i) => (
           <Image key={i} source={{ uri: `${TMDB_BASE}${src}` }}
             style={{ width: pw, height: ph, margin: 2, borderRadius: 4 }} resizeMode="cover" />
         ))}
       </View>
-      <LinearGradient
-        colors={["rgba(10,0,30,0.88)","rgba(10,0,30,0.94)","rgba(10,0,30,0.99)"]}
-        style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={["rgba(10,0,30,0.88)","rgba(10,0,30,0.94)","rgba(10,0,30,0.99)"]} style={StyleSheet.absoluteFill} />
     </View>
   );
 };
 
-// Build Appwrite OAuth URL manually — bypasses SDK redirect issues entirely
-const buildOAuthUrl = (provider: OAuthProvider, successUrl: string, failureUrl: string): string => {
-  const endpoint  = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT  ?? "https://cloud.appwrite.io/v1";
-  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "";
-  const params = new URLSearchParams({ project: projectId, success: successUrl, failure: failureUrl });
+const buildOAuthUrl = (provider: OAuthProvider, successUrl: string, failureUrl: string) => {
+  const endpoint  = "https://fra.cloud.appwrite.io/v1";
+  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? "699381200024b709931f";
+  const params    = new URLSearchParams({ project: projectId, success: successUrl, failure: failureUrl });
   return `${endpoint}/account/sessions/oauth2/${provider}?${params.toString()}`;
 };
 
 const parseRegErr = (e: any): string => {
   const msg  = String(e?.message ?? "").toLowerCase();
   const code = e?.code;
+  if (msg.includes("missing scopes") || msg.includes("platform is not registered"))
+    return "Setup issue — please contact support.";
   if (msg.includes("already exists") || msg.includes("user_already_exists") || code === 409)
     return "An account with this email already exists. Please sign in instead.";
   if (msg.includes("network") || msg.includes("fetch"))
-    return "Network error. Fix: Appwrite Console → Project → Settings → Platforms → add your domain.";
+    return "Network error. Please check your connection and try again.";
   return e?.message || "Registration failed. Please try again.";
 };
 
@@ -74,8 +70,6 @@ const SignUp = () => {
   const { returnTo, autoPlay } = useLocalSearchParams<{ returnTo?: string; autoPlay?: string }>();
   const { register } = useAuth();
   const toast = useToast();
-  const { width } = useWindowDimensions();
-  const isDesktop = width > 768;
   const fromMovie = !!returnTo && returnTo.includes("/movies/");
 
   const [name,     setName]     = useState("");
@@ -84,6 +78,7 @@ const SignUp = () => {
   const [confirm,  setConfirm]  = useState("");
   const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [formErr,  setFormErr]  = useState("");
   const [errs,     setErrs]     = useState({ name: "", email: "", password: "", confirm: "" });
 
@@ -117,7 +112,7 @@ const SignUp = () => {
     setLoading(true);
     try {
       const { username } = await register(email.trim().toLowerCase(), password, name.trim());
-      toast.success(`Welcome, ${username}! 🎬`, fromMovie ? "Account created! Opening your movie…" : "Your 14-day free trial has started.");
+      toast.success(`Welcome, ${username}! 🎬`, fromMovie ? "Account created! Opening your movie…" : "Your free trial has started.");
       if (returnTo) {
         router.replace((autoPlay === "true" ? `${returnTo}?autoPlay=true` : returnTo) as any);
       } else {
@@ -130,26 +125,41 @@ const SignUp = () => {
     }
   };
 
-  // DEFINITIVE OAuth fix — build URL manually, navigate directly on web
+  // ── OAUTH — web: URL redirect | native: createOAuth2Token + WebBrowser ────
   const handleOAuth = async (provider: OAuthProvider) => {
+    setOauthLoading(String(provider));
     try {
-      const base =
-        Platform.OS === "web" && typeof window !== "undefined"
-          ? window.location.origin
-          : "https://vietimeapp.vercel.app";
-      const successUrl = `${base}/`;
-      const failureUrl = `${base}/(auth)/sign-in`;
-
       if (Platform.OS === "web" && typeof window !== "undefined") {
-        const oauthUrl = buildOAuthUrl(provider, successUrl, failureUrl);
-        console.log("[OAuth] Redirecting to:", oauthUrl);
-        window.location.href = oauthUrl;
+        const origin     = window.location.origin;
+        const successUrl = `${origin}/`;
+        const failureUrl = `${origin}/(auth)/sign-in`;
+        window.location.href = buildOAuthUrl(provider, successUrl, failureUrl);
       } else {
-        await account.createOAuth2Session(provider, successUrl, failureUrl);
+        // Native: use createOAuth2Token (createOAuth2Session does NOT work on RN)
+        const redirectUri = Linking.createURL("/");
+        // TS FIX: await inside try/catch — no .catch() on the return value
+        const oauthUrl = await account.createOAuth2Token(provider, redirectUri, redirectUri);
+
+        if (!oauthUrl) throw new Error("No OAuth URL returned");
+
+        const WebBrowser = await import("expo-web-browser");
+        const result = await WebBrowser.openAuthSessionAsync(oauthUrl.toString(), redirectUri);
+
+        if (result.type === "success" && result.url) {
+          const url    = new URL(result.url);
+          const secret = url.searchParams.get("secret");
+          const userId = url.searchParams.get("userId");
+          if (secret && userId) {
+            await account.createSession(userId, secret);
+            toast.success("Account created with Google!");
+            router.replace(returnTo ? String(returnTo) as any : "/(tabs)/profile");
+          }
+        }
+        setOauthLoading(null);
       }
     } catch (e: any) {
-      console.error("[OAuth] Error:", e?.code, e?.message);
-      toast.error("OAuth failed", String(e?.message ?? "Please try again"));
+      toast.error("Sign up failed", String(e?.message ?? "Please try again"));
+      setOauthLoading(null);
     }
   };
 
@@ -163,23 +173,24 @@ const SignUp = () => {
       <PosterBg />
 
       <ScrollView contentContainerStyle={S.scroll} keyboardShouldPersistTaps="always" showsVerticalScrollIndicator={false}>
+
         <TouchableOpacity style={S.backBtn} onPress={() => router.canGoBack() ? router.back() : router.replace("/")}>
           <Ionicons name="arrow-back" size={18} color="#fff" />
         </TouchableOpacity>
 
-        <View style={[S.card, isDesktop && S.cardWide]}>
+        <View style={S.card}>
           <View style={S.cardHead}>
             <LinearGradient colors={["rgba(171,139,255,0.25)","rgba(171,139,255,0.06)"]} style={S.headIcon}>
               <Ionicons name={fromMovie ? "play-circle" : "person-add"} size={24} color="#AB8BFF" />
             </LinearGradient>
             <Text style={S.heading}>Create account</Text>
-            <Text style={S.sub}>{fromMovie ? "Join millions of subscibers 🎬" : "Join free — 14-day trial included"}</Text>
+            <Text style={S.sub}>{fromMovie ? "Join millions of subscribers 🎬" : "Join free — 14-day trial included"}</Text>
           </View>
 
           {fromMovie && (
             <View style={S.contextBox}>
               <Ionicons name="film-outline" size={14} color="#AB8BFF" />
-              <Text style={S.contextTxt}>Create a free account to stream movie.</Text>
+              <Text style={S.contextTxt}>Create a free account to stream movies.</Text>
             </View>
           )}
 
@@ -204,7 +215,7 @@ const SignUp = () => {
             <Text style={S.label}>FULL NAME</Text>
             <View style={[S.row, !!errs.name && S.rowErr]}>
               <View style={S.iconBox}><Ionicons name="person-outline" size={16} color={errs.name ? "#ef4444" : "#AB8BFF"} /></View>
-              <TextInput style={S.input} value={name} onChangeText={v => { setName(v); setE("name", ""); }}
+              <TextInput style={S.input} value={name} onChangeText={v => { setName(v); setE("name",""); }}
                 placeholder="John Doe" placeholderTextColor="rgba(255,255,255,0.2)"
                 autoCapitalize="words" returnKeyType="next"
                 onSubmitEditing={() => emailRef.current?.focus()} blurOnSubmit={false}
@@ -219,7 +230,7 @@ const SignUp = () => {
             <View style={[S.row, !!errs.email && S.rowErr]}>
               <View style={S.iconBox}><Ionicons name="mail-outline" size={16} color={errs.email ? "#ef4444" : "#AB8BFF"} /></View>
               <TextInput ref={emailRef} style={S.input} value={email}
-                onChangeText={v => { setEmail(v); setE("email", ""); setFormErr(""); }}
+                onChangeText={v => { setEmail(v); setE("email",""); setFormErr(""); }}
                 placeholder="you@example.com" placeholderTextColor="rgba(255,255,255,0.2)"
                 keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
                 returnKeyType="next" onSubmitEditing={() => pwRef.current?.focus()} blurOnSubmit={false}
@@ -234,7 +245,7 @@ const SignUp = () => {
             <View style={[S.row, !!errs.password && S.rowErr]}>
               <View style={S.iconBox}><Ionicons name="lock-closed-outline" size={16} color={errs.password ? "#ef4444" : "#AB8BFF"} /></View>
               <TextInput ref={pwRef} style={S.input} value={password}
-                onChangeText={v => { setPassword(v); setE("password", ""); }}
+                onChangeText={v => { setPassword(v); setE("password",""); }}
                 placeholder="Min. 8 characters" placeholderTextColor="rgba(255,255,255,0.2)"
                 secureTextEntry={!showPw} returnKeyType="next"
                 onSubmitEditing={() => confirmRef.current?.focus()} blurOnSubmit={false}
@@ -255,13 +266,13 @@ const SignUp = () => {
             </View>
           )}
 
-          {/* Confirm */}
+          {/* Confirm Password */}
           <View style={S.field}>
             <Text style={S.label}>CONFIRM PASSWORD</Text>
             <View style={[S.row, !!errs.confirm && S.rowErr]}>
               <View style={S.iconBox}><Ionicons name="shield-checkmark-outline" size={16} color={errs.confirm ? "#ef4444" : "#AB8BFF"} /></View>
               <TextInput ref={confirmRef} style={S.input} value={confirm}
-                onChangeText={v => { setConfirm(v); setE("confirm", ""); }}
+                onChangeText={v => { setConfirm(v); setE("confirm",""); }}
                 placeholder="Repeat password" placeholderTextColor="rgba(255,255,255,0.2)"
                 secureTextEntry={!showPw} returnKeyType="done" onSubmitEditing={handleSignUp}
                 {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
@@ -281,7 +292,7 @@ const SignUp = () => {
 
           <TouchableOpacity style={[S.btn, loading && { opacity: 0.6 }]} onPress={handleSignUp} disabled={loading} activeOpacity={0.85}>
             <LinearGradient colors={loading ? ["#333","#333"] : ["#c4a8ff","#AB8BFF","#7c3aed"]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={S.btnIn}>
+              start={{ x:0,y:0 }} end={{ x:1,y:0 }} style={S.btnIn}>
               {loading ? <ActivityIndicator color="#fff" />
                 : <><Ionicons name={fromMovie ? "play" : "person-add-outline"} size={17} color="#0f0f12" />
                     <Text style={S.btnTxt}>{fromMovie ? "Create Account & Watch" : "Create Account"}</Text></>}
@@ -291,13 +302,15 @@ const SignUp = () => {
           <View style={S.divRow}><View style={S.divLine} /><Text style={S.divTxt}>OR SIGN UP WITH</Text><View style={S.divLine} /></View>
 
           <View style={S.oauthRow}>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8}>
-              <GoogleLogo size={24} />
-              <Text style={S.oauthTxt}>Google</Text>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Google)} activeOpacity={0.8} disabled={!!oauthLoading}>
+              {oauthLoading === String(OAuthProvider.Google)
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <><GoogleLogo size={22} /><Text style={S.oauthTxt}>Google</Text></>}
             </TouchableOpacity>
-            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8}>
-              <FacebookIcon size={22} />
-              <Text style={S.oauthTxt}>Facebook</Text>
+            <TouchableOpacity style={S.oauthBtn} onPress={() => handleOAuth(OAuthProvider.Facebook)} activeOpacity={0.8} disabled={!!oauthLoading}>
+              {oauthLoading === String(OAuthProvider.Facebook)
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <><FacebookIcon size={20} /><Text style={S.oauthTxt}>Facebook</Text></>}
             </TouchableOpacity>
           </View>
 
@@ -324,10 +337,9 @@ export default SignUp;
 
 const S = StyleSheet.create({
   root:        { flex: 1, backgroundColor: "#0a001e", overflow: "hidden" },
-  scroll:      { flexGrow: 1, padding: 22, paddingTop: Platform.OS === "web" ? 40 : 56, alignItems: "center" },
+  scroll:      { flexGrow: 1, paddingHorizontal: 20, paddingTop: Platform.OS === "web" ? 40 : 56, paddingBottom: 40, alignItems: "center" },
   backBtn:     { alignSelf: "flex-start", width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  card:        { width: "100%", maxWidth: 480, backgroundColor: "rgba(12,4,30,0.95)", borderRadius: 22, padding: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)", ...(Platform.OS === "web" ? { boxShadow: "0 32px 80px rgba(0,0,0,0.6)" } as any : {}) },
-  cardWide:    { maxWidth: 480 },
+  card:        { width: "100%", maxWidth: 480, alignSelf: "center", backgroundColor: "rgba(12,4,30,0.95)", borderRadius: 22, padding: 24, borderWidth: 1, borderColor: "rgba(255,255,255,0.09)" },
   cardHead:    { alignItems: "center", marginBottom: 20 },
   headIcon:    { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", marginBottom: 12 },
   heading:     { color: "#fff", fontSize: 24, fontWeight: "900", textAlign: "center", marginBottom: 4 },

@@ -398,20 +398,44 @@ const Profile = () => {
                   </View>
                   <Text style={S.photoOptionTxt}>{Platform.OS === "web" ? "Choose File" : "Gallery"}</Text>
                 </TouchableOpacity>
-                {!!pickOAuthAvatar(user) && (
-                  <TouchableOpacity style={S.photoOptionBtn}
-                    onPress={async () => {
-                      const oauthUri = pickOAuthAvatar(user);
-                      setUploadStatus("uploading");
-                      await saveAvatar(oauthUri);
-                    }}
-                    activeOpacity={0.8}>
-                    <View style={S.photoOptionIcon}>
-                      <Ionicons name="logo-google" size={20} color="#AB8BFF" />
-                    </View>
-                    <Text style={S.photoOptionTxt}>Google Photo</Text>
-                  </TouchableOpacity>
-                )}
+                {/* Google Photo — always visible, always fetches latest from Google */}
+                <TouchableOpacity style={S.photoOptionBtn}
+                  onPress={async () => {
+                    setUploadStatus("uploading");
+                    try {
+                      // First try to refetch from Google OAuth identities
+                      // Use the already-imported account from top of file (no require needed)
+                      let googlePic: string | null = null;
+                      try {
+                        const identities = await Promise.race([
+                          (account as any).listIdentities(),
+                          new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+                        ]) as any;
+                        const googleId = (identities?.identities ?? []).find((id: any) => id.provider === "google");
+                        if (googleId?.providerAccessToken) {
+                          const res = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${googleId.providerAccessToken}`);
+                          if (res.ok) { const d = await res.json(); googlePic = d?.picture ?? null; }
+                        }
+                      } catch {}
+                      // Fallback to whatever is cached in prefs
+                      if (!googlePic) googlePic = pickOAuthAvatar(user);
+                      if (googlePic) {
+                        await saveAvatar(googlePic);
+                      } else {
+                        setUploadStatus("idle");
+                        toast.error("No Google photo found", "Sign in with Google to sync your photo.");
+                      }
+                    } catch (e: any) {
+                      setUploadStatus("idle");
+                      toast.error("Failed", e?.message ?? "Could not fetch Google photo");
+                    }
+                  }}
+                  activeOpacity={0.8}>
+                  <View style={S.photoOptionIcon}>
+                    <Ionicons name="logo-google" size={20} color="#AB8BFF" />
+                  </View>
+                  <Text style={S.photoOptionTxt}>Google Photo</Text>
+                </TouchableOpacity>
               </View>
             )}
 
