@@ -1,15 +1,17 @@
 // app/support.tsx
+
 import React, { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator, ScrollView, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import PageBackHeader from "../components/PageBackHeader";
 import { useToast } from "../components/Toast";
-import { functions } from "../services/appwriteConfig";
 
-// Function ID hardcoded as fallback — also set EXPO_PUBLIC_APPWRITE_SUPPORT_FUNCTION_ID in Vercel
-const FUNCTION_ID =
-  process.env.EXPO_PUBLIC_APPWRITE_SUPPORT_FUNCTION_ID?.trim() ||
-  "69b688f20036184f0e7f";
+const FORMSPREE_URL = process.env.EXPO_PUBLIC_FORMSPREE_URL?.trim() ?? "";
+const emailRegex    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SupportPage() {
   const toast = useToast();
@@ -17,100 +19,118 @@ export default function SupportPage() {
   const [email,   setEmail]   = useState("");
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [sent,    setSent]    = useState(false);
+  const [errors,  setErrors]  = useState({ name: "", email: "", message: "" });
+
+  const validate = () => {
+    const e = { name: "", email: "", message: "" };
+    if (!name.trim())                        e.name    = "Name is required";
+    if (!email.trim())                       e.email   = "Email is required";
+    else if (!emailRegex.test(email.trim())) e.email   = "Enter a valid email address";
+    if (!message.trim())                     e.message = "Please write a message";
+    else if (message.trim().length < 10)     e.message = "Message is too short";
+    setErrors(e);
+    return !e.name && !e.email && !e.message;
+  };
 
   const submit = async () => {
-    if (!name.trim() || !email.trim() || !message.trim()) {
-      toast.error("Missing details", "Please fill in your name, email, and message.");
+    if (!validate()) return;
+    if (!FORMSPREE_URL) {
+      toast.error("Not configured", "Email us directly at chidiokwu795@gmail.com");
       return;
     }
-
     setSending(true);
     try {
-      const execution = await functions.createExecution(
-        FUNCTION_ID,
-        JSON.stringify({
-          name:    name.trim(),
-          email:   email.trim(),
-          message: message.trim(),
-        }),
-        false, // synchronous execution — waits for result
-      );
-
-      // Log full result for debugging
-      console.log("[Support] execution status:", execution.status);
-      console.log("[Support] responseStatusCode:", execution.responseStatusCode);
-      console.log("[Support] responseBody:", execution.responseBody);
-      console.log("[Support] logs:", execution.logs);
-      console.log("[Support] errors:", execution.errors);
-
-      const statusCode = execution.responseStatusCode ?? 200;
-
-      if (statusCode >= 400 || execution.status === "failed") {
-        // Parse the error body if possible
-        let errMsg = "Function returned an error. Check Appwrite function logs.";
-        try {
-          const body = JSON.parse(execution.responseBody ?? "{}");
-          errMsg = body?.error ?? errMsg;
-        } catch {}
-        // Also surface the raw errors field
-        if (execution.errors?.trim()) errMsg = execution.errors;
-        throw new Error(errMsg);
-      }
-
+      const res  = await fetch(FORMSPREE_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body:    JSON.stringify({ name: name.trim(), email: email.trim(), message: message.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any)?.errors?.[0]?.message ?? "Submission failed");
       setName(""); setEmail(""); setMessage("");
-      toast.success("Message sent! 🎬", "We'll reply to your email shortly.");
+      setErrors({ name: "", email: "", message: "" });
+      setSent(true);
     } catch (e: any) {
-      const msg = String(e?.message ?? "");
-      console.error("[Support] error:", msg);
-
-      // Show the REAL error — don't hide it
-      if (msg.includes("missing scope") || msg.includes("unauthorized") || msg.toLowerCase().includes("401")) {
-        toast.error(
-          "Permission error",
-          "The function doesn't allow public execution. Go to Appwrite → Functions → your function → Settings → Permissions → add role 'Any' → Execute."
-        );
-      } else if (msg.includes("not found") || msg.toLowerCase().includes("404")) {
-        toast.error("Function not found", `Check that function ID "${FUNCTION_ID}" exists in Appwrite.`);
-      } else if (msg.includes("RESEND") || msg.includes("apiKey")) {
-        toast.error("Email not configured", "Add RESEND_API_KEY to the function's environment variables in Appwrite.");
-      } else {
-        toast.error("Unable to send", msg || "Please try again.");
-      }
+      toast.error("Unable to send", e?.message ?? "Please try again.");
     } finally {
       setSending(false);
     }
   };
 
+  if (sent) {
+    return (
+      <SafeAreaView style={S.root}>
+        <PageBackHeader />
+        <View style={S.successWrap}>
+          <View style={S.successIcon}>
+            <Ionicons name="checkmark-circle" size={56} color="#4ade80" />
+          </View>
+          <Text style={S.successTitle}>Message sent!</Text>
+          <Text style={S.successSub}>
+            Thank you for reaching out.{"\n"}We will reply to{"\n"}
+            <Text style={{ color: "#AB8BFF", fontWeight: "800" }}>{email}</Text>
+            {"\n"}shortly.
+          </Text>
+          <TouchableOpacity style={S.sendAnotherBtn} onPress={() => setSent(false)}>
+            <Ionicons name="create-outline" size={15} color="#AB8BFF" />
+            <Text style={S.sendAnotherTxt}>Send another message</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={S.root}>
       <PageBackHeader />
-      <ScrollView contentContainerStyle={S.content}>
+      <ScrollView contentContainerStyle={S.content} keyboardShouldPersistTaps="handled">
         <Text style={S.title}>Contact Support</Text>
         <Text style={S.subtitle}>Send us a message and we'll reply by email.</Text>
 
         <View style={S.card}>
           <Text style={S.label}>Full Name</Text>
-          <TextInput
-            style={S.input} value={name} onChangeText={setName}
-            placeholder="Your name" placeholderTextColor="rgba(255,255,255,0.35)" />
+          <View style={[S.inputWrap, !!errors.name && S.inputWrapErr]}>
+            <Ionicons name="person-outline" size={16} color={errors.name ? "#ef4444" : "#AB8BFF"} style={S.inputIcon} />
+            <TextInput style={S.input} value={name}
+              onChangeText={v => { setName(v); setErrors(p => ({ ...p, name: "" })); }}
+              placeholder="Your name" placeholderTextColor="rgba(255,255,255,0.3)" autoCapitalize="words" />
+          </View>
+          {!!errors.name && <Text style={S.fieldErr}>{errors.name}</Text>}
 
-          <Text style={S.label}>Email</Text>
-          <TextInput
-            style={S.input} value={email} onChangeText={setEmail}
-            placeholder="you@example.com" placeholderTextColor="rgba(255,255,255,0.35)"
-            autoCapitalize="none" keyboardType="email-address" />
+          <Text style={[S.label, { marginTop: 14 }]}>Email Address</Text>
+          <View style={[S.inputWrap, !!errors.email && S.inputWrapErr]}>
+            <Ionicons name="mail-outline" size={16} color={errors.email ? "#ef4444" : "#AB8BFF"} style={S.inputIcon} />
+            <TextInput style={S.input} value={email}
+              onChangeText={v => { setEmail(v); setErrors(p => ({ ...p, email: "" })); }}
+              placeholder="you@example.com" placeholderTextColor="rgba(255,255,255,0.3)"
+              autoCapitalize="none" keyboardType="email-address" />
+          </View>
+          {!!errors.email && <Text style={S.fieldErr}>{errors.email}</Text>}
 
-          <Text style={S.label}>Message</Text>
-          <TextInput
-            style={[S.input, S.message]} value={message} onChangeText={setMessage}
-            placeholder="How can we help?" placeholderTextColor="rgba(255,255,255,0.35)"
-            multiline textAlignVertical="top" />
+          <Text style={[S.label, { marginTop: 14 }]}>Message</Text>
+          <View style={[S.inputWrap, S.messageWrap, !!errors.message && S.inputWrapErr]}>
+            <TextInput style={[S.input, S.messageInput]} value={message}
+              onChangeText={v => { setMessage(v); setErrors(p => ({ ...p, message: "" })); }}
+              placeholder="How can we help? Describe your issue in detail."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              multiline textAlignVertical="top" />
+          </View>
+          {!!errors.message && <Text style={S.fieldErr}>{errors.message}</Text>}
+          <Text style={S.charCount}>{message.length} characters</Text>
 
-          <TouchableOpacity style={S.sendBtn} onPress={submit} disabled={sending} activeOpacity={0.85}>
+          <TouchableOpacity style={[S.sendBtn, sending && { opacity: 0.6 }]} onPress={submit} disabled={sending} activeOpacity={0.85}>
             {sending
               ? <ActivityIndicator size="small" color="#0f0f12" />
-              : <Text style={S.sendTxt}>Send Message</Text>}
+              : <><Ionicons name="paper-plane-outline" size={17} color="#0f0f12" /><Text style={S.sendTxt}>Send Message</Text></>}
           </TouchableOpacity>
+
+          <View style={S.directRow}>
+            <Ionicons name="information-circle-outline" size={13} color="rgba(255,255,255,0.25)" />
+            <Text style={S.directTxt}>
+              Or email directly at <Text style={{ color: "#AB8BFF" }}>chidiokwu795@gmail.com</Text>
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -118,14 +138,28 @@ export default function SupportPage() {
 }
 
 const S = StyleSheet.create({
-  root:     { flex: 1, backgroundColor: "#0f0f12" },
-  content:  { padding: 20, paddingBottom: 120, gap: 12 },
-  title:    { color: "#fff", fontSize: 28, fontWeight: "900" },
-  subtitle: { color: "rgba(255,255,255,0.45)", fontSize: 13, marginBottom: 8 },
-  card:     { backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 14, padding: 14, width: "100%", maxWidth: 760, alignSelf: "center" },
-  label:    { color: "#AB8BFF", fontSize: 13, fontWeight: "700", marginBottom: 6, marginTop: 8 },
-  input:    { backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 10, color: "#fff", paddingHorizontal: 12, paddingVertical: 11, fontSize: 14 },
-  message:  { minHeight: 120, marginBottom: 12 },
-  sendBtn:  { marginTop: 10, backgroundColor: "#AB8BFF", borderRadius: 10, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
-  sendTxt:  { color: "#0f0f12", fontWeight: "900", fontSize: 14 },
+  root:          { flex: 1, backgroundColor: "#0f0f12" },
+  content:       { padding: 20, paddingBottom: 120 },
+  title:         { color: "#fff", fontSize: 26, fontWeight: "900", marginBottom: 6 },
+  subtitle:      { color: "rgba(255,255,255,0.45)", fontSize: 13, marginBottom: 20 },
+  card:          { backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 16, padding: 16, width: "100%", maxWidth: 760, alignSelf: "center" },
+  label:         { color: "#AB8BFF", fontSize: 12, fontWeight: "800", marginBottom: 6, letterSpacing: 0.5 },
+  inputWrap:     { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 10, paddingHorizontal: 10, minHeight: 46 },
+  inputWrapErr:  { borderColor: "rgba(239,68,68,0.5)", backgroundColor: "rgba(239,68,68,0.04)" },
+  inputIcon:     { marginRight: 8, flexShrink: 0 },
+  input:         { flex: 1, color: "#fff", fontSize: 14, paddingVertical: 11 },
+  messageWrap:   { alignItems: "flex-start", paddingTop: 10 },
+  messageInput:  { minHeight: 110, paddingVertical: 0 },
+  fieldErr:      { color: "#ef4444", fontSize: 11, marginTop: 4, marginLeft: 2, marginBottom: 2 },
+  charCount:     { color: "rgba(255,255,255,0.2)", fontSize: 10, textAlign: "right", marginTop: 4, marginBottom: 4 },
+  sendBtn:       { marginTop: 14, backgroundColor: "#AB8BFF", borderRadius: 11, paddingVertical: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  sendTxt:       { color: "#0f0f12", fontWeight: "900", fontSize: 14 },
+  directRow:     { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 14 },
+  directTxt:     { color: "rgba(255,255,255,0.25)", fontSize: 11, flex: 1, lineHeight: 16 },
+  successWrap:   { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 14 },
+  successIcon:   { width: 96, height: 96, borderRadius: 48, backgroundColor: "rgba(74,222,128,0.1)", alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  successTitle:  { color: "#fff", fontSize: 24, fontWeight: "900", textAlign: "center" },
+  successSub:    { color: "rgba(255,255,255,0.45)", fontSize: 14, textAlign: "center", lineHeight: 22 },
+  sendAnotherBtn:{ flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 11, paddingVertical: 13, paddingHorizontal: 20, borderWidth: 1.5, borderColor: "rgba(171,139,255,0.35)", marginTop: 6 },
+  sendAnotherTxt:{ color: "#AB8BFF", fontWeight: "800", fontSize: 14 },
 });
