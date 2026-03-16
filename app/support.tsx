@@ -1,10 +1,25 @@
 // app/support.tsx
+// Uses Formspree — no Appwrite Function, no Resend, no backend needed.
+//
+// ONE-TIME SETUP (2 minutes):
+//   1. Go to https://formspree.io → Sign up free (100 submissions/month)
+//   2. Click "New Form" → name it "MovieTime Support"
+//   3. Copy the form endpoint: https://formspree.io/f/xabc1234
+//   4. Add EXPO_PUBLIC_FORMSPREE_URL=https://formspree.io/f/xabc1234 to Vercel env vars
+//   5. Done. Formspree emails you at whatever address you used to sign up.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  ActivityIndicator, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Platform, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from "react-native";
+
+// Remove browser default focus outline on web
+if (Platform.OS === "web" && typeof document !== "undefined") {
+  const s = document.createElement("style");
+  s.textContent = "input:focus, textarea:focus { outline: none !important; box-shadow: none !important; }";
+  document.head.appendChild(s);
+}
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import PageBackHeader from "../components/PageBackHeader";
@@ -94,7 +109,8 @@ export default function SupportPage() {
             <Ionicons name="person-outline" size={16} color={errors.name ? "#ef4444" : "#AB8BFF"} style={S.inputIcon} />
             <TextInput style={S.input} value={name}
               onChangeText={v => { setName(v); setErrors(p => ({ ...p, name: "" })); }}
-              placeholder="Your name" placeholderTextColor="rgba(255,255,255,0.3)" autoCapitalize="words" />
+              placeholder="Your name" placeholderTextColor="rgba(255,255,255,0.3)" autoCapitalize="words"
+              {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
           </View>
           {!!errors.name && <Text style={S.fieldErr}>{errors.name}</Text>}
 
@@ -104,7 +120,8 @@ export default function SupportPage() {
             <TextInput style={S.input} value={email}
               onChangeText={v => { setEmail(v); setErrors(p => ({ ...p, email: "" })); }}
               placeholder="you@example.com" placeholderTextColor="rgba(255,255,255,0.3)"
-              autoCapitalize="none" keyboardType="email-address" />
+              autoCapitalize="none" keyboardType="email-address"
+              {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
           </View>
           {!!errors.email && <Text style={S.fieldErr}>{errors.email}</Text>}
 
@@ -114,7 +131,8 @@ export default function SupportPage() {
               onChangeText={v => { setMessage(v); setErrors(p => ({ ...p, message: "" })); }}
               placeholder="How can we help? Describe your issue in detail."
               placeholderTextColor="rgba(255,255,255,0.3)"
-              multiline textAlignVertical="top" />
+              multiline textAlignVertical="top"
+              {...(Platform.OS === "web" ? { outlineStyle: "none" } as any : {})} />
           </View>
           {!!errors.message && <Text style={S.fieldErr}>{errors.message}</Text>}
           <Text style={S.charCount}>{message.length} characters</Text>
