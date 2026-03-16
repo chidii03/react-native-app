@@ -1,4 +1,4 @@
-// app/(auth)/reset-password.tsx  (also works at app/reset-password.tsx)
+// app/(auth)/reset-password.tsx  
 
 import React, { useState } from "react";
 import {

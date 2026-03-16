@@ -6,7 +6,10 @@ import PageBackHeader from "../components/PageBackHeader";
 import { useToast } from "../components/Toast";
 import { functions } from "../services/appwriteConfig";
 
-const FUNCTION_ID = process.env.EXPO_PUBLIC_APPWRITE_SUPPORT_FUNCTION_ID ?? "69b688f20036184f0e7f";
+// Function ID hardcoded as fallback — also set EXPO_PUBLIC_APPWRITE_SUPPORT_FUNCTION_ID in Vercel
+const FUNCTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_SUPPORT_FUNCTION_ID?.trim() ||
+  "69b688f20036184f0e7f";
 
 export default function SupportPage() {
   const toast = useToast();
@@ -21,15 +24,6 @@ export default function SupportPage() {
       return;
     }
 
-    if (!FUNCTION_ID) {
-      // Fallback: show a helpful message if function not configured yet
-      toast.error(
-        "Support unavailable",
-        "Email support is not configured yet. Please email chidiokwu795@gmail.com directly."
-      );
-      return;
-    }
-
     setSending(true);
     try {
       const execution = await functions.createExecution(
@@ -39,31 +33,46 @@ export default function SupportPage() {
           email:   email.trim(),
           message: message.trim(),
         }),
-        false, // synchronous — wait for result
+        false, // synchronous execution — waits for result
       );
 
+      // Log full result for debugging
+      console.log("[Support] execution status:", execution.status);
+      console.log("[Support] responseStatusCode:", execution.responseStatusCode);
+      console.log("[Support] responseBody:", execution.responseBody);
+      console.log("[Support] logs:", execution.logs);
+      console.log("[Support] errors:", execution.errors);
+
       const statusCode = execution.responseStatusCode ?? 200;
-      if (statusCode >= 400) {
-        let errMsg = "Failed to send message. Please try again.";
+
+      if (statusCode >= 400 || execution.status === "failed") {
+        // Parse the error body if possible
+        let errMsg = "Function returned an error. Check Appwrite function logs.";
         try {
           const body = JSON.parse(execution.responseBody ?? "{}");
           errMsg = body?.error ?? errMsg;
         } catch {}
+        // Also surface the raw errors field
+        if (execution.errors?.trim()) errMsg = execution.errors;
         throw new Error(errMsg);
       }
 
       setName(""); setEmail(""); setMessage("");
-      toast.success(
-        "Message sent! 🎬",
-        "One of our team members will reach out to you shortly."
-      );
+      toast.success("Message sent! 🎬", "We'll reply to your email shortly.");
     } catch (e: any) {
       const msg = String(e?.message ?? "");
-      if (msg.includes("not configured") || msg.includes("FUNCTION_ID")) {
+      console.error("[Support] error:", msg);
+
+      // Show the REAL error — don't hide it
+      if (msg.includes("missing scope") || msg.includes("unauthorized") || msg.toLowerCase().includes("401")) {
         toast.error(
-          "Support unavailable",
-          "Please email chidiokwu795@gmail.com directly."
+          "Permission error",
+          "The function doesn't allow public execution. Go to Appwrite → Functions → your function → Settings → Permissions → add role 'Any' → Execute."
         );
+      } else if (msg.includes("not found") || msg.toLowerCase().includes("404")) {
+        toast.error("Function not found", `Check that function ID "${FUNCTION_ID}" exists in Appwrite.`);
+      } else if (msg.includes("RESEND") || msg.includes("apiKey")) {
+        toast.error("Email not configured", "Add RESEND_API_KEY to the function's environment variables in Appwrite.");
       } else {
         toast.error("Unable to send", msg || "Please try again.");
       }
