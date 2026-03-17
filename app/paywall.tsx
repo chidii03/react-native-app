@@ -14,15 +14,34 @@ const OWNER_EMAILS = ["chidiokwu795@gmail.com"];
 
 // ── Payment links ─────────────────────────────────────────────────────────────
 // To add yearly Paystack: create a ₦12,800 page in paystack dashboard → paste URL below
-// To add Stripe: add EXPO_PUBLIC_STRIPE_MONTHLY_URL + EXPO_PUBLIC_STRIPE_YEARLY_URL in Vercel
-
+// Flutterwave handles USD, EUR, GBP — add env vars EXPO_PUBLIC_FLW_USD_MONTHLY etc. in Vercel
 const PAYMENT_LINKS = {
-  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",      yearly: "https://paystack.shop/pay/mkghesxsg2" },
-  flutterwave: { monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn",  yearly: "https://flutterwave.com/pay/cbcapoz0v5gk" },
-  stripe:      {
-    monthly: process.env.EXPO_PUBLIC_STRIPE_MONTHLY_URL ?? "",
-    yearly:  process.env.EXPO_PUBLIC_STRIPE_YEARLY_URL  ?? "",
+  paystack: {
+    monthly: "https://paystack.shop/pay/u-e7b46zzv",
+    yearly:  "https://paystack.shop/pay/mkghesxsg2",
   },
+  flutterwave: {
+    // NGN
+    monthly_ngn: "https://flutterwave.com/pay/nbzc1l6pb4gn",
+    yearly_ngn:  "https://flutterwave.com/pay/cbcapoz0v5gk",
+    // USD — create at dashboard.flutterwave.com → Payment Links → currency: USD
+    // Monthly: $1.00  |  Yearly: $8.00
+    monthly_usd: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
+    yearly_usd:  process.env.EXPO_PUBLIC_FLW_USD_YEARLY  ?? "",
+    // EUR — Monthly: €0.93  |  Yearly: €7.44
+    monthly_eur: process.env.EXPO_PUBLIC_FLW_EUR_MONTHLY ?? "",
+    yearly_eur:  process.env.EXPO_PUBLIC_FLW_EUR_YEARLY  ?? "",
+    // GBP — Monthly: £0.79  |  Yearly: £6.32
+    monthly_gbp: process.env.EXPO_PUBLIC_FLW_GBP_MONTHLY ?? "",
+    yearly_gbp:  process.env.EXPO_PUBLIC_FLW_GBP_YEARLY  ?? "",
+  },
+};
+
+const getFLWUrl = (plan: PlanId, currency: string): string => {
+  const key = currency === "NGN"
+    ? `${plan}_ngn`
+    : `${plan}_${currency.toLowerCase()}`;
+  return (PAYMENT_LINKS.flutterwave as any)[key] ?? "";
 };
 
 const NGN_TO: Record<string, number> = {
@@ -39,12 +58,11 @@ const PLANS = [
 ] as const;
 
 type PlanId    = "monthly" | "yearly";
-type GatewayId = "paystack" | "flutterwave" | "stripe";
+type GatewayId = "paystack" | "flutterwave";
 
 const GATEWAYS: { id: GatewayId; title: string; subtitle: string; color: string; currencies: string[] }[] = [
   { id: "paystack",    title: "Paystack",    subtitle: "Cards, Bank Transfer, USSD",   color: "#00c3f7", currencies: ["NGN"] },
-  { id: "flutterwave", title: "Flutterwave", subtitle: "Cards, Bank, Mobile Money",    color: "#f5a623", currencies: ["NGN"] },
-  { id: "stripe",      title: "Stripe",      subtitle: "Credit / Debit Card (Global)", color: "#6772e5", currencies: ["USD","EUR","GBP"] },
+  { id: "flutterwave", title: "Flutterwave", subtitle: "Cards, Bank, Mobile Money — All currencies", color: "#f5a623", currencies: ["NGN","USD","EUR","GBP"] },
 ];
 
 const PERKS = [
@@ -84,8 +102,8 @@ export default function Paywall() {
 
   const handleCurrencyChange = (c: typeof CURRENCIES[number]) => {
     setCurrency(c);
-    if (c !== "NGN") setGateway("stripe");
-    else if (gateway === "stripe") setGateway("paystack");
+    if (c !== "NGN") setGateway("flutterwave");
+    else setGateway("paystack");
   };
 
   const handleSubscribe = () => {
@@ -96,8 +114,9 @@ export default function Paywall() {
     }
 
     const selectedPlan = PLANS.find(p => p.id === plan)!;
-    const links        = PAYMENT_LINKS[gateway];
-    const baseUrl      = links[plan];
+    const baseUrl = gateway === "paystack"
+      ? PAYMENT_LINKS.paystack[plan]
+      : getFLWUrl(plan, currency);
     const price        = fmt(selectedPlan.ngn, currency);
 
     if (!baseUrl) {
@@ -214,7 +233,7 @@ export default function Paywall() {
           <Text style={S.sectionLabel}>PAYMENT METHOD</Text>
           <View style={S.gatewayBox}>
             {GATEWAYS.map((g, idx) => {
-              const isDisabled = currency !== "NGN" && g.id !== "stripe";
+              const isDisabled = g.id === "paystack" && currency !== "NGN";
               return (
                 <TouchableOpacity
                   key={g.id}
@@ -232,9 +251,9 @@ export default function Paywall() {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Text style={S.gatewayTitle}>{g.title}</Text>
-                      {g.id === "stripe" && (
+                      {g.id === "flutterwave" && currency !== "NGN" && (
                         <View style={S.stripeBadge}>
-                          <Text style={S.stripeBadgeTxt}>USD · EUR · GBP</Text>
+                          <Text style={S.stripeBadgeTxt}>{currency}</Text>
                         </View>
                       )}
                     </View>
@@ -269,7 +288,7 @@ export default function Paywall() {
           <Text style={S.cancelNote}>Cancel anytime. Managed by Chidi via admin panel.</Text>
           <Text style={S.legalText}>
             By subscribing you agree to MovieTime's Terms of Service.{"\n"}
-            Payment processed securely by Paystack, Flutterwave, or Stripe.
+            Payment processed securely by Paystack or Flutterwave.
           </Text>
         </ScrollView>
       </SafeAreaView>

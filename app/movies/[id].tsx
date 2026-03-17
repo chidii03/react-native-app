@@ -49,18 +49,30 @@ const openUrl = (url: string) => {
 };
 
 const PAYMENT_LINKS = {
-  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",     yearly: "https://paystack.shop/pay/mkghesxsg2" },
-  flutterwave: { monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn", yearly: "https://flutterwave.com/pay/cbcapoz0v5gk" },
-  stripe:      {
-    monthly: process.env.EXPO_PUBLIC_STRIPE_MONTHLY_URL ?? "",
-    yearly:  process.env.EXPO_PUBLIC_STRIPE_YEARLY_URL  ?? "",
+  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",   yearly: "https://paystack.shop/pay/mkghesxsg2" },
+  flutterwave: {monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn", yearly:  "https://flutterwave.com/pay/cbcapoz0v5gk",
+    // USD — create these in Flutterwave Dashboard → Payment Links
+    usd_monthly: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
+    usd_yearly:  process.env.EXPO_PUBLIC_FLW_USD_YEARLY  ?? "",
+    // EUR
+    eur_monthly: process.env.EXPO_PUBLIC_FLW_EUR_MONTHLY ?? "",
+    eur_yearly:  process.env.EXPO_PUBLIC_FLW_EUR_YEARLY  ?? "",
+    // GBP
+    gbp_monthly: process.env.EXPO_PUBLIC_FLW_GBP_MONTHLY ?? "",
+    gbp_yearly:  process.env.EXPO_PUBLIC_FLW_GBP_YEARLY  ?? "",
   },
+};
+
+// Helper: pick the right Flutterwave link for the selected currency + plan
+const getFLWUrl = (currency: string, plan: PlanId): string => {
+  const key = currency === "NGN" ? plan : `${currency.toLowerCase()}_${plan}`;
+  return (PAYMENT_LINKS.flutterwave as any)[key] ?? "";
 };
 
 const NGN_TO: Record<string, number> = { NGN: 1, USD: 1/1600, EUR: 1/1720, GBP: 1/2025 };
 const SYM:   Record<string, string>  = { NGN: "₦", USD: "$", EUR: "€", GBP: "£" };
 type PlanId    = "monthly" | "yearly";
-type GatewayId = "paystack" | "flutterwave" | "stripe";
+type GatewayId = "paystack" | "flutterwave";
 const fmt = (ngn: number, cur: string) => {
   const n = ngn * NGN_TO[cur];
   return cur === "NGN" ? `${SYM[cur]}${n.toLocaleString()}` : `${SYM[cur]}${n.toFixed(2)}`;
@@ -81,20 +93,25 @@ const PaywallModal = ({
 }) => {
   const [plan,     setPlan]     = useState<PlanId>("monthly");
   const [currency, setCurrency] = useState<"NGN"|"USD"|"EUR"|"GBP">("NGN");
-  const [gateway,  setGateway]  = useState<GatewayId>("paystack");
+  const [gateway,  setGateway]  = useState<GatewayId>("flutterwave");
 
   const isWeb = Platform.OS === "web";
 
   const handleCurrencyChange = (c: typeof currency) => {
     setCurrency(c);
-    if (c !== "NGN") setGateway("stripe");
-    else if (gateway === "stripe") setGateway("paystack");
+    // Paystack only works for NGN; switch to Flutterwave for international
+    if (c !== "NGN") setGateway("flutterwave");
   };
 
   const pay = (gw: GatewayId) => {
-    const baseUrl = PAYMENT_LINKS[gw][plan];
+    let baseUrl = "";
+    if (gw === "paystack") {
+      baseUrl = PAYMENT_LINKS.paystack[plan];
+    } else {
+      baseUrl = getFLWUrl(currency, plan);
+    }
     if (!baseUrl) {
-      Alert.alert("Not configured", "This payment option isn't set up yet. Try another.");
+      Alert.alert("Not configured", `${gw} ${currency} ${plan} link not set up yet. Add it to Vercel env vars.`);
       return;
     }
     const params = new URLSearchParams({ plan, uid: userId, email: userEmail, name: userName });
@@ -170,37 +187,29 @@ const PaywallModal = ({
               ))}
             </View>
 
+            {/* Paystack — NGN only */}
             {currency === "NGN" && (
-              <>
-                <TouchableOpacity style={PW.paystackBtn} onPress={() => pay("paystack")} activeOpacity={0.85}>
-                  <View style={[PW.gwDot, { backgroundColor: "#00c3f7" }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={PW.gatewayTitle}>Pay with Paystack</Text>
-                    <Text style={PW.gatewaySubtitle}>Cards, Bank Transfer, USSD</Text>
-                  </View>
-                  <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={PW.flutterwaveBtn} onPress={() => pay("flutterwave")} activeOpacity={0.85}>
-                  <View style={[PW.gwDot, { backgroundColor: "#f5a623" }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={PW.gatewayTitle}>Pay with Flutterwave</Text>
-                    <Text style={PW.gatewaySubtitle}>Cards, Bank, Mobile Money</Text>
-                  </View>
-                  <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {currency !== "NGN" && (
-              <TouchableOpacity style={PW.stripeBtn} onPress={() => pay("stripe")} activeOpacity={0.85}>
-                <View style={[PW.gwDot, { backgroundColor: "#6772e5" }]} />
+              <TouchableOpacity style={PW.paystackBtn} onPress={() => pay("paystack")} activeOpacity={0.85}>
+                <View style={[PW.gwDot, { backgroundColor: "#00c3f7" }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={PW.gatewayTitle}>Pay with Stripe</Text>
-                  <Text style={PW.gatewaySubtitle}>Credit / Debit Card · {currency}</Text>
+                  <Text style={PW.gatewayTitle}>Pay with Paystack</Text>
+                  <Text style={PW.gatewaySubtitle}>Cards, Bank Transfer, USSD</Text>
                 </View>
-                <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, currency)}</Text>
+                <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, "NGN")}</Text>
               </TouchableOpacity>
             )}
+
+            {/* Flutterwave — all currencies */}
+            <TouchableOpacity style={PW.flutterwaveBtn} onPress={() => pay("flutterwave")} activeOpacity={0.85}>
+              <View style={[PW.gwDot, { backgroundColor: "#f5a623" }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={PW.gatewayTitle}>Pay with Flutterwave</Text>
+                <Text style={PW.gatewaySubtitle}>
+                  {currency === "NGN" ? "Cards, Bank, Mobile Money" : `Cards & Bank · ${currency}`}
+                </Text>
+              </View>
+              <Text style={PW.priceTag}>{fmt(ngnPlans.find(p=>p.id===plan)!.ngn, currency)}</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity style={PW.fullPageBtn}
               onPress={() => { onClose(); router.push("/paywall"); }} activeOpacity={0.8}>
@@ -268,7 +277,7 @@ const PW = StyleSheet.create({
   currTxt:        { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700" },
   paystackBtn:    { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(0,195,247,0.08)", borderWidth: 1, borderColor: "rgba(0,195,247,0.3)", borderRadius: 14, padding: 14, marginTop: 4 },
   flutterwaveBtn: { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(245,166,35,0.08)", borderWidth: 1, borderColor: "rgba(245,166,35,0.3)", borderRadius: 14, padding: 14, marginTop: 10 },
-  stripeBtn:      { width: "100%", flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(103,114,229,0.08)", borderWidth: 1, borderColor: "rgba(103,114,229,0.3)", borderRadius: 14, padding: 14, marginTop: 4 },
+
   gwDot:          { width: 12, height: 12, borderRadius: 6 },
   gatewayTitle:   { color: "#fff", fontSize: 14, fontWeight: "800" },
   gatewaySubtitle:{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 1 },
