@@ -50,7 +50,7 @@ const openUrl = (url: string) => {
 
 const PAYMENT_LINKS = {
   paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",   yearly: "https://paystack.shop/pay/mkghesxsg2" },
-  flutterwave: {monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn", yearly:  "https://flutterwave.com/pay/cbcapoz0v5gk",
+  flutterwave: {monthly: "https://flutterwave.com/pay/7rlc2qs2qcfd", yearly:  "https://flutterwave.com/pay/xfqscqzgcwit",
     // USD — create these in Flutterwave Dashboard → Payment Links
     usd_monthly: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
     usd_yearly:  process.env.EXPO_PUBLIC_FLW_USD_YEARLY  ?? "",

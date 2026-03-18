@@ -22,8 +22,8 @@ const PAYMENT_LINKS = {
   },
   flutterwave: {
     // NGN
-    monthly_ngn: "https://flutterwave.com/pay/nbzc1l6pb4gn",
-    yearly_ngn:  "https://flutterwave.com/pay/cbcapoz0v5gk",
+    monthly_ngn: "https://flutterwave.com/pay/7rlc2qs2qcfd",
+    yearly_ngn:  "https://flutterwave.com/pay/xfqscqzgcwit",
     // USD — create at dashboard.flutterwave.com → Payment Links → currency: USD
     // Monthly: $1.00  |  Yearly: $8.00
     monthly_usd: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
