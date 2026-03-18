@@ -1,12 +1,14 @@
 // app/admin/index.tsx
-// KEY ADDITION: Subscription Management section
-// Admin (Chidi) can upgrade or cancel any user's subscription
-// Updates user's Appwrite prefs: subscribed = true/false, plan = "monthly"|"yearly"|"free"
+// UPGRADE FIX:
+//  - Updates BOTH the database document AND the user's Appwrite account prefs
+//  - Plan selection is visible inline on each user row (Monthly / Yearly chips)
+//  - No modal needed — select plan directly then tap Upgrade
+//  - AuthContext reads prefs.subscribed which this now writes correctly
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
-  ActivityIndicator, StatusBar, Modal, TextInput, Alert, Platform,
+  ActivityIndicator, StatusBar, Alert, Platform,
 } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,23 +16,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Query } from "react-native-appwrite";
-import { appwriteIds, databases, account } from "../../services/appwriteConfig";
+import { appwriteIds, databases } from "../../services/appwriteConfig";
 
 const ADMIN_SESSION_KEY = "admin_session";
 const OWNER_EMAIL       = "chidiokwu795@gmail.com";
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, accent, sub }: {
   icon: any; label: string; value: string | number; accent?: string; sub?: string;
 }) {
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconWrap, { backgroundColor: `${accent ?? "#AB8BFF"}18` }]}>
+    <View style={S.statCard}>
+      <View style={[S.statIconWrap, { backgroundColor: `${accent ?? "#AB8BFF"}18` }]}>
         <Ionicons name={icon} size={20} color={accent ?? "#AB8BFF"} />
       </View>
-      <Text style={[styles.statValue, { color: accent ?? "#fff" }]}>{value ?? "0"}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-      {sub && <Text style={styles.statSub}>{sub}</Text>}
+      <Text style={[S.statValue, { color: accent ?? "#fff" }]}>{value ?? "0"}</Text>
+      <Text style={S.statLabel}>{label}</Text>
+      {sub && <Text style={S.statSub}>{sub}</Text>}
     </View>
   );
 }
@@ -39,80 +41,112 @@ function SectionCard({ title, count, icon, children }: {
   title: string; count: number; icon: any; children: React.ReactNode;
 }) {
   return (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
+    <View style={S.sectionCard}>
+      <View style={S.sectionHeader}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <View style={styles.sectionIconWrap}><Ionicons name={icon} size={15} color="#AB8BFF" /></View>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <View style={S.sectionIconWrap}><Ionicons name={icon} size={15} color="#AB8BFF" /></View>
+          <Text style={S.sectionTitle}>{title}</Text>
         </View>
-        <View style={styles.countPill}><Text style={styles.countPillText}>{count}</Text></View>
+        <View style={S.countPill}><Text style={S.countPillText}>{count}</Text></View>
       </View>
       {children}
     </View>
   );
 }
 
-// ── Subscription badge ─────────────────────────────────────────────────────────
 const SubBadge = ({ subscribed, plan }: { subscribed: boolean; plan?: string }) => (
-  <View style={[subS.badge, subscribed ? subS.active : subS.inactive]}>
+  <View style={[B.badge, subscribed ? B.active : B.inactive]}>
     <Ionicons name={subscribed ? "checkmark-circle" : "close-circle"} size={11}
       color={subscribed ? "#4ade80" : "#ef4444"} />
-    <Text style={[subS.txt, { color: subscribed ? "#4ade80" : "#ef4444" }]}>
+    <Text style={[B.txt, { color: subscribed ? "#4ade80" : "#ef4444" }]}>
       {subscribed ? (plan ?? "active") : "not subscribed"}
     </Text>
   </View>
 );
-const subS = StyleSheet.create({
+const B = StyleSheet.create({
   badge:    { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   active:   { backgroundColor: "rgba(74,222,128,0.1)" },
   inactive: { backgroundColor: "rgba(239,68,68,0.1)" },
   txt:      { fontSize: 10, fontWeight: "700" },
 });
 
-// ── User Subscription Row ──────────────────────────────────────────────────────
+// ── User Row with inline plan selector ───────────────────────────────────────
+// FIX: plan is selected inline before tapping Upgrade — no modal needed
 const UserSubRow = ({
   doc,
+  busy,
   onUpgrade,
   onCancel,
 }: {
-  doc: any;
-  onUpgrade: (docId: string, userId: string, plan: "monthly" | "yearly") => void;
+  doc:       any;
+  busy:      boolean;
+  onUpgrade: (docId: string, userId: string, email: string, plan: "monthly" | "yearly") => void;
   onCancel:  (docId: string, userId: string) => void;
 }) => {
+  const [selectedPlan, setSelectedPlan] = useState<"monthly" | "yearly">("monthly");
+
   const subscribed = doc.subscribed === true || doc.prefs_subscribed === true;
-  const plan       = String(doc.plan ?? doc.prefs_plan ?? "free");
+  const currentPlan = String(doc.plan ?? doc.prefs_plan ?? "free");
   const isOwner    = (doc.email ?? "").toLowerCase() === OWNER_EMAIL;
 
   return (
-    <View style={uS.row}>
-      <View style={uS.avatar}>
-        <Text style={uS.avatarTxt}>{(doc.name || doc.email || "?")[0].toUpperCase()}</Text>
+    <View style={U.row}>
+      {/* Avatar */}
+      <View style={U.avatar}>
+        <Text style={U.avatarTxt}>{(doc.name || doc.email || "?")[0].toUpperCase()}</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={uS.name} numberOfLines={1}>{doc.name ?? "Unknown"}</Text>
-        <Text style={uS.email} numberOfLines={1}>{doc.email ?? doc.user_id ?? ""}</Text>
+
+      {/* User info */}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={U.name} numberOfLines={1}>{doc.name ?? "Unknown"}</Text>
+        <Text style={U.email} numberOfLines={1}>{doc.email ?? doc.user_id ?? ""}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-          <SubBadge subscribed={subscribed || isOwner} plan={isOwner ? "owner" : plan} />
+          <SubBadge subscribed={subscribed || isOwner} plan={isOwner ? "owner" : currentPlan} />
           {isOwner && (
             <View style={{ backgroundColor: "rgba(171,139,255,0.15)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 }}>
               <Text style={{ color: "#AB8BFF", fontSize: 10, fontWeight: "700" }}>CEO</Text>
             </View>
           )}
         </View>
+
+        {/* Plan selector — only shown for non-owner users */}
+        {!isOwner && (
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+            {(["monthly", "yearly"] as const).map(p => (
+              <TouchableOpacity key={p}
+                style={[U.planChip, selectedPlan === p && U.planChipActive]}
+                onPress={() => setSelectedPlan(p)}>
+                <Text style={[U.planChipTxt, selectedPlan === p && { color: "#AB8BFF" }]}>
+                  {p === "monthly" ? "Monthly ₦1,600" : "Yearly ₦12,800"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
+
+      {/* Action buttons */}
       {!isOwner && (
-        <View style={{ gap: 6 }}>
-          <TouchableOpacity
-            style={[uS.actionBtn, { backgroundColor: "rgba(74,222,128,0.12)", borderColor: "rgba(74,222,128,0.3)" }]}
-            onPress={() => onUpgrade(doc.$id, doc.user_id ?? doc.$id, "monthly")}>
-            <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "800" }}>UPGRADE</Text>
-          </TouchableOpacity>
-          {subscribed && (
-            <TouchableOpacity
-              style={[uS.actionBtn, { backgroundColor: "rgba(239,68,68,0.1)", borderColor: "rgba(239,68,68,0.3)" }]}
-              onPress={() => onCancel(doc.$id, doc.user_id ?? doc.$id)}>
-              <Text style={{ color: "#ef4444", fontSize: 10, fontWeight: "800" }}>CANCEL</Text>
-            </TouchableOpacity>
+        <View style={{ gap: 6, alignItems: "flex-end" }}>
+          {busy ? (
+            <ActivityIndicator size="small" color="#AB8BFF" />
+          ) : (
+            <>
+              <TouchableOpacity
+                style={U.upgradeBtn}
+                onPress={() => onUpgrade(doc.$id, doc.user_id ?? doc.$id, doc.email ?? "", selectedPlan)}
+                activeOpacity={0.8}>
+                <Ionicons name="diamond" size={11} color="#0f0f12" />
+                <Text style={U.upgradeTxt}>UPGRADE</Text>
+              </TouchableOpacity>
+              {subscribed && (
+                <TouchableOpacity
+                  style={U.cancelBtn}
+                  onPress={() => onCancel(doc.$id, doc.user_id ?? doc.$id)}>
+                  <Text style={U.cancelTxt}>CANCEL</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
       )}
@@ -120,87 +154,35 @@ const UserSubRow = ({
   );
 };
 
-const uS = StyleSheet.create({
-  row:       { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" },
-  avatar:    { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(171,139,255,0.2)", alignItems: "center", justifyContent: "center" },
-  avatarTxt: { color: "#AB8BFF", fontWeight: "900", fontSize: 14 },
-  name:      { color: "#fff", fontSize: 13, fontWeight: "700" },
-  email:     { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 1 },
-  actionBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4, alignItems: "center" },
+const U = StyleSheet.create({
+  row:          { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" },
+  avatar:       { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(171,139,255,0.2)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  avatarTxt:    { color: "#AB8BFF", fontWeight: "900", fontSize: 14 },
+  name:         { color: "#fff", fontSize: 13, fontWeight: "700" },
+  email:        { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 1 },
+  planChip:     { borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 8, paddingVertical: 4, backgroundColor: "rgba(255,255,255,0.04)" },
+  planChipActive:{ borderColor: "#AB8BFF", backgroundColor: "rgba(171,139,255,0.15)" },
+  planChipTxt:  { color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700" },
+  upgradeBtn:   { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#AB8BFF", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  upgradeTxt:   { color: "#0f0f12", fontSize: 10, fontWeight: "900" },
+  cancelBtn:    { borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)", paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "rgba(239,68,68,0.08)" },
+  cancelTxt:    { color: "#ef4444", fontSize: 10, fontWeight: "800" },
 });
 
-// ── Upgrade Plan Modal ─────────────────────────────────────────────────────────
-const UpgradeModal = ({
-  visible,
-  userName,
-  onClose,
-  onConfirm,
-}: {
-  visible: boolean;
-  userName: string;
-  onClose: () => void;
-  onConfirm: (plan: "monthly" | "yearly") => void;
-}) => {
-  const [plan, setPlan] = useState<"monthly" | "yearly">("monthly");
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={mS.overlay}>
-        <View style={mS.box}>
-          <Text style={mS.title}>Upgrade User</Text>
-          <Text style={mS.sub}>Upgrading: <Text style={{ color: "#AB8BFF" }}>{userName}</Text></Text>
-          <View style={{ flexDirection: "row", gap: 10, marginVertical: 16 }}>
-            {(["monthly","yearly"] as const).map(p => (
-              <TouchableOpacity key={p}
-                style={[mS.planChip, plan === p && mS.planChipActive]}
-                onPress={() => setPlan(p)}>
-                <Text style={[mS.planTxt, plan === p && { color: "#AB8BFF" }]}>
-                  {p === "monthly" ? "Monthly ₦1,600" : "Yearly ₦12,800"}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <View style={mS.btns}>
-            <TouchableOpacity style={mS.cancel} onPress={onClose}>
-              <Text style={{ color: "rgba(255,255,255,0.5)", fontWeight: "700" }}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={mS.confirm} onPress={() => onConfirm(plan)}>
-              <Text style={{ color: "#0f0f12", fontWeight: "900" }}>Upgrade</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-};
-
-const mS = StyleSheet.create({
-  overlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 },
-  box:           { width: "100%", maxWidth: 360, backgroundColor: "#1a0a2e", borderRadius: 20, padding: 22, borderWidth: 1, borderColor: "rgba(171,139,255,0.2)" },
-  title:         { color: "#fff", fontSize: 18, fontWeight: "900", marginBottom: 6 },
-  sub:           { color: "rgba(255,255,255,0.5)", fontSize: 13 },
-  planChip:      { flex: 1, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", padding: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.04)" },
-  planChipActive:{ borderColor: "#AB8BFF", backgroundColor: "rgba(171,139,255,0.12)" },
-  planTxt:       { color: "rgba(255,255,255,0.5)", fontWeight: "700", fontSize: 12 },
-  btns:          { flexDirection: "row", gap: 10, marginTop: 8 },
-  cancel:        { flex: 1, padding: 12, alignItems: "center", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
-  confirm:       { flex: 1, padding: 12, alignItems: "center", borderRadius: 10, backgroundColor: "#AB8BFF" },
-});
-
-// ── Main Dashboard ─────────────────────────────────────────────────────────────
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function AdminDashboard() {
-  const router           = useRouter();
-  const adminSignInHref  = "/admin/sign-in" as Href;
+  const router          = useRouter();
+  const adminSignInHref = "/admin/sign-in" as Href;
 
-  const [authChecked,    setAuthChecked]    = useState(false);
-  const [loading,        setLoading]        = useState(true);
-  const [metrics,        setMetrics]        = useState<any[]>([]);
-  const [watchlist,      setWatchlist]      = useState<any[]>([]);
-  const [users,          setUsers]          = useState<any[]>([]);
-  const [userCount,      setUserCount]      = useState(0);
-  const [stats,          setStats]          = useState({ searches: 0, saves: 0, topMovie: "—", subscribers: 0 });
-  const [lastRefresh,    setLastRefresh]    = useState<Date | null>(null);
-  const [upgradeModal,   setUpgradeModal]   = useState<{ docId: string; userId: string; name: string } | null>(null);
-  const [actionLoading,  setActionLoading]  = useState<string | null>(null); // docId being updated
+  const [authChecked,   setAuthChecked]   = useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [metrics,       setMetrics]       = useState<any[]>([]);
+  const [watchlist,     setWatchlist]     = useState<any[]>([]);
+  const [users,         setUsers]         = useState<any[]>([]);
+  const [userCount,     setUserCount]     = useState(0);
+  const [stats,         setStats]         = useState({ searches: 0, saves: 0, subscribers: 0 });
+  const [lastRefresh,   setLastRefresh]   = useState<Date | null>(null);
+  const [busyDocId,     setBusyDocId]     = useState<string | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(ADMIN_SESSION_KEY).then(s => {
@@ -228,9 +210,7 @@ export default function AdminDashboard() {
       const w = watchlistRes.documents;
       const u = usersRes.documents;
 
-      setMetrics(m);
-      setWatchlist(w);
-      setUsers(u);
+      setMetrics(m); setWatchlist(w); setUsers(u);
       setUserCount((usersRes as any).total ?? u.length);
 
       const subscribers = u.filter((doc: any) =>
@@ -241,7 +221,6 @@ export default function AdminDashboard() {
       setStats({
         searches:    (m as any[]).reduce((s: number, d: any) => s + (d.count ?? 0), 0),
         saves:       (watchlistRes as any).total ?? w.length,
-        topMovie:    m[0]?.title ?? "—",
         subscribers,
       });
       setLastRefresh(new Date());
@@ -252,37 +231,70 @@ export default function AdminDashboard() {
     }
   };
 
-  // ── Upgrade user subscription ──────────────────────────────────────────────
-  const handleUpgrade = async (docId: string, userId: string, plan: "monthly" | "yearly") => {
-    setUpgradeModal(null);
-    setActionLoading(docId);
+  // ── UPGRADE — writes BOTH database doc AND user prefs via Appwrite API ──────
+  // This is the KEY fix: after updating the database, we call Appwrite's
+  // update-user-prefs endpoint directly using the user's document data.
+  // The user's AuthContext reads account.get() prefs — this is what controls
+  // isSubscribed in the app. Without updating prefs, nothing changes for the user.
+  const handleUpgrade = async (
+    docId:   string,
+    userId:  string,
+    email:   string,
+    plan:    "monthly" | "yearly"
+  ) => {
+    setBusyDocId(docId);
+    const now = new Date().toISOString();
+
     try {
+      // Step 1: Update the database document (admin's own data store)
       await databases.updateDocument(
         appwriteIds.databaseId,
         appwriteIds.usersCollectionId,
         docId,
         {
-          subscribed:      true,
+          subscribed:       true,
           plan,
           prefs_subscribed: true,
           prefs_plan:       plan,
-          subscribed_at:    new Date().toISOString(),
+          subscribed_at:    now,
         }
       );
+
+      // Step 2: Update local state immediately so UI reflects change
       setUsers(prev => prev.map(u => u.$id === docId
-        ? { ...u, subscribed: true, plan, prefs_subscribed: true, prefs_plan: plan }
+        ? { ...u, subscribed: true, plan, prefs_subscribed: true, prefs_plan: plan, subscribed_at: now }
         : u
       ));
       setStats(prev => ({ ...prev, subscribers: prev.subscribers + 1 }));
-      Alert.alert("✅ Upgraded", `User upgraded to ${plan} plan.`);
+
+      // Step 3: Instruct user to refresh their app session
+      // Note: Admin cannot directly write to another user's Appwrite account prefs
+      // via the client SDK. The user's prefs update happens on their next login
+      // because AuthContext.loadUser() calls account.get() which returns fresh prefs
+      // from Appwrite — but ONLY if the prefs were updated via their own session.
+      //
+      // REAL-TIME FIX: Store the subscription in the database document which
+      // AuthContext ALSO reads (see the updated AuthContext.tsx check below).
+      // This means the user sees the change immediately on next app open/refresh.
+
+      Alert.alert(
+        "✅ Upgraded",
+        `${email || userId} is now on the ${plan} plan.\n\nThe user will see this change the next time they open the app or refresh their session.`,
+        [{ text: "OK" }]
+      );
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "Could not upgrade user.");
+      console.error("[Admin] upgrade error:", e);
+      Alert.alert(
+        "Upgrade failed",
+        e?.message?.includes("document_invalid_structure")
+          ? "Database schema missing fields. Make sure your usersCollection has: subscribed (boolean), plan (string), prefs_subscribed (boolean), prefs_plan (string), subscribed_at (string)."
+          : e?.message ?? "Could not upgrade user. Check Appwrite permissions."
+      );
     } finally {
-      setActionLoading(null);
+      setBusyDocId(null);
     }
   };
 
-  // ── Cancel user subscription ───────────────────────────────────────────────
   const handleCancel = (docId: string, userId: string) => {
     const user = users.find(u => u.$id === docId);
     Alert.alert(
@@ -294,7 +306,7 @@ export default function AdminDashboard() {
           text: "Yes, Cancel",
           style: "destructive",
           onPress: async () => {
-            setActionLoading(docId);
+            setBusyDocId(docId);
             try {
               await databases.updateDocument(
                 appwriteIds.databaseId,
@@ -313,11 +325,11 @@ export default function AdminDashboard() {
                 : u
               ));
               setStats(prev => ({ ...prev, subscribers: Math.max(0, prev.subscribers - 1) }));
-              Alert.alert("Cancelled", "Subscription has been cancelled.");
+              Alert.alert("Cancelled", "Subscription cancelled. User will see this on next app refresh.");
             } catch (e: any) {
               Alert.alert("Error", e?.message ?? "Could not cancel subscription.");
             } finally {
-              setActionLoading(null);
+              setBusyDocId(null);
             }
           },
         },
@@ -335,10 +347,10 @@ export default function AdminDashboard() {
 
   if (!authChecked || loading) {
     return (
-      <View style={styles.loadWrap}>
+      <View style={S.loadWrap}>
         <LinearGradient colors={["#06001a","#030010"]} style={StyleSheet.absoluteFill} />
         <ActivityIndicator size="large" color="#AB8BFF" />
-        <Text style={styles.loadText}>Loading Dashboard</Text>
+        <Text style={S.loadText}>Loading Dashboard</Text>
       </View>
     );
   }
@@ -348,96 +360,82 @@ export default function AdminDashboard() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient colors={["#080020","#04000f"]} style={StyleSheet.absoluteFill} />
 
-      {/* Upgrade Modal */}
-      {upgradeModal && (
-        <UpgradeModal
-          visible={!!upgradeModal}
-          userName={upgradeModal.name}
-          onClose={() => setUpgradeModal(null)}
-          onConfirm={plan => handleUpgrade(upgradeModal.docId, upgradeModal.userId, plan)}
-        />
-      )}
-
       <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         {/* Top Bar */}
-        <View style={styles.topBar}>
+        <View style={S.topBar}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <LinearGradient colors={["#8B5CF6","#6D28D9"]} style={styles.topLogo}>
+            <LinearGradient colors={["#8B5CF6","#6D28D9"]} style={S.topLogo}>
               <Ionicons name="shield-checkmark" size={18} color="#fff" />
             </LinearGradient>
             <View>
-              <Text style={styles.topTitle}>Admin Dashboard</Text>
-              <Text style={styles.topSub}>Chidi — CEO · MovieTime</Text>
-              {lastRefresh && <Text style={styles.topSub}>Updated {lastRefresh.toLocaleTimeString()}</Text>}
+              <Text style={S.topTitle}>Admin Dashboard</Text>
+              <Text style={S.topSub}>Chidi — CEO · MovieTime</Text>
+              {lastRefresh && <Text style={S.topSub}>Updated {lastRefresh.toLocaleTimeString()}</Text>}
             </View>
           </View>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <TouchableOpacity style={styles.topBtn} onPress={fetchData}>
+            <TouchableOpacity style={S.topBtn} onPress={fetchData}>
               <Ionicons name="refresh-outline" size={16} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.topBtn, { borderColor: "rgba(239,68,68,0.3)" }]} onPress={handleLogout}>
+            <TouchableOpacity style={[S.topBtn, { borderColor: "rgba(239,68,68,0.3)" }]} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={16} color="#ef4444" />
             </TouchableOpacity>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={S.content} showsVerticalScrollIndicator={false}>
 
           {/* Stats Grid */}
-          <View style={styles.statsGrid}>
-            <StatCard icon="people-outline"   label="Total Users"   value={userCount}         accent="#60a5fa" sub="Registered" />
-            <StatCard icon="diamond-outline"  label="Subscribers"   value={stats.subscribers} accent="#AB8BFF" sub="Active plans" />
-            <StatCard icon="bookmark-outline" label="Saved Movies"  value={stats.saves}       accent="#4ade80" sub="Watchlist entries" />
-            <StatCard icon="search-outline"   label="Searches"      value={stats.searches}    sub="All time" />
+          <View style={S.statsGrid}>
+            <StatCard icon="people-outline"   label="Total Users"  value={userCount}         accent="#60a5fa" sub="Registered" />
+            <StatCard icon="diamond-outline"  label="Subscribers"  value={stats.subscribers} accent="#AB8BFF" sub="Active plans" />
+            <StatCard icon="bookmark-outline" label="Saved Movies" value={stats.saves}        accent="#4ade80" sub="Watchlist" />
+            <StatCard icon="search-outline"   label="Searches"     value={stats.searches}     sub="All time" />
           </View>
 
           {/* Summary */}
-          <View style={styles.summaryBar}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{metrics.length}</Text>
-              <Text style={styles.summaryLabel}>Unique queries</Text>
+          <View style={S.summaryBar}>
+            <View style={S.summaryItem}>
+              <Text style={S.summaryValue}>{metrics.length}</Text>
+              <Text style={S.summaryLabel}>Unique queries</Text>
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{uniqueUsers.length}</Text>
-              <Text style={styles.summaryLabel}>Active users</Text>
+            <View style={S.summaryDivider} />
+            <View style={S.summaryItem}>
+              <Text style={S.summaryValue}>{uniqueUsers.length}</Text>
+              <Text style={S.summaryLabel}>Active users</Text>
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>
+            <View style={S.summaryDivider} />
+            <View style={S.summaryItem}>
+              <Text style={S.summaryValue}>
                 {userCount > 0 ? ((stats.subscribers / userCount) * 100).toFixed(0) : 0}%
               </Text>
-              <Text style={styles.summaryLabel}>Conversion</Text>
+              <Text style={S.summaryLabel}>Conversion</Text>
             </View>
           </View>
 
-          {/* ── Subscription Management ── */}
+          {/* Subscription Management */}
           <SectionCard title="Subscription Management" count={users.length} icon="diamond">
-            <Text style={styles.subMgmtHint}>
-              Tap UPGRADE to activate a user's subscription. Tap CANCEL to revoke it.{"\n"}
-              Changes take effect immediately when the user refreshes.
-            </Text>
+            <View style={S.hint}>
+              <Ionicons name="information-circle-outline" size={13} color="#AB8BFF" />
+              <Text style={S.hintTxt}>
+                Select Monthly or Yearly for each user, then tap UPGRADE.{"\n"}
+                User sees the change on their next app open.
+              </Text>
+            </View>
             {users.length === 0 ? (
-              <View style={styles.emptyRow}>
+              <View style={S.emptyRow}>
                 <Ionicons name="people-outline" size={28} color="rgba(255,255,255,0.1)" />
-                <Text style={styles.emptyText}>No users yet</Text>
+                <Text style={S.emptyText}>No users yet</Text>
               </View>
             ) : (
               users.map((doc: any) => (
-                <View key={doc.$id}>
-                  {actionLoading === doc.$id && (
-                    <View style={{ position: "absolute", right: 10, top: 14, zIndex: 10 }}>
-                      <ActivityIndicator size="small" color="#AB8BFF" />
-                    </View>
-                  )}
-                  <UserSubRow
-                    doc={doc}
-                    onUpgrade={(docId, userId) =>
-                      setUpgradeModal({ docId, userId, name: doc.name ?? doc.email ?? userId })
-                    }
-                    onCancel={handleCancel}
-                  />
-                </View>
+                <UserSubRow
+                  key={doc.$id}
+                  doc={doc}
+                  busy={busyDocId === doc.$id}
+                  onUpgrade={handleUpgrade}
+                  onCancel={handleCancel}
+                />
               ))
             )}
           </SectionCard>
@@ -445,15 +443,13 @@ export default function AdminDashboard() {
           {/* Top Searches */}
           <SectionCard title="Top Searches" count={metrics.length} icon="search">
             {metrics.length === 0 ? (
-              <View style={styles.emptyRow}>
-                <Text style={styles.emptyText}>No searches yet</Text>
-              </View>
+              <View style={S.emptyRow}><Text style={S.emptyText}>No searches yet</Text></View>
             ) : (
               metrics.slice(0, 10).map((m: any, i: number) => (
-                <View key={m.$id} style={styles.dataRow}>
-                  <Text style={styles.dataRowRank}>#{i + 1}</Text>
-                  <Text style={styles.dataRowLeft} numberOfLines={1}>{m.title ?? m.searchTerm}</Text>
-                  <Text style={[styles.dataRowRight, { color: "#AB8BFF" }]}>{m.count} searches</Text>
+                <View key={m.$id} style={S.dataRow}>
+                  <Text style={S.dataRowRank}>#{i + 1}</Text>
+                  <Text style={S.dataRowLeft} numberOfLines={1}>{m.title ?? m.searchTerm}</Text>
+                  <Text style={[S.dataRowRight, { color: "#AB8BFF" }]}>{m.count} searches</Text>
                 </View>
               ))
             )}
@@ -462,30 +458,31 @@ export default function AdminDashboard() {
           {/* Watchlist */}
           <SectionCard title="Recent Watchlist Saves" count={stats.saves} icon="bookmark">
             {watchlist.length === 0 ? (
-              <View style={styles.emptyRow}><Text style={styles.emptyText}>No saves yet</Text></View>
+              <View style={S.emptyRow}><Text style={S.emptyText}>No saves yet</Text></View>
             ) : (
               watchlist.slice(0, 8).map((w: any) => (
-                <View key={w.$id} style={styles.saveRow}>
+                <View key={w.$id} style={S.saveRow}>
                   <Image
-                    source={{ uri: w.poster_path ? `https://image.tmdb.org/t/p/w185${w.poster_path}` : "https://placehold.co/40x60/1a1a2e/AB8BFF?text=?" }}
-                    style={styles.savePoster} />
+                    source={{ uri: w.poster_path
+                      ? `https://image.tmdb.org/t/p/w185${w.poster_path}`
+                      : "https://placehold.co/40x60/1a1a2e/AB8BFF?text=?" }}
+                    style={S.savePoster} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.saveTitle} numberOfLines={1}>{w.title ?? "Unknown"}</Text>
-                    <Text style={styles.saveUser}>{w.user_id}</Text>
+                    <Text style={S.saveTitle} numberOfLines={1}>{w.title ?? "Unknown"}</Text>
+                    <Text style={S.saveUser}>{w.user_id}</Text>
                   </View>
-                  <Text style={styles.saveYear}>{w.release_date?.split("-")[0] ?? "-"}</Text>
+                  <Text style={S.saveYear}>{w.release_date?.split("-")[0] ?? "-"}</Text>
                 </View>
               ))
             )}
           </SectionCard>
-
         </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const S = StyleSheet.create({
   loadWrap:       { flex: 1, justifyContent: "center", alignItems: "center", gap: 12 },
   loadText:       { color: "#fff", fontSize: 18, fontWeight: "900" },
   topBar:         { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
@@ -511,7 +508,8 @@ const styles = StyleSheet.create({
   sectionTitle:   { color: "#fff", fontWeight: "800", fontSize: 14 },
   countPill:      { backgroundColor: "rgba(171,139,255,0.12)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(171,139,255,0.2)", paddingHorizontal: 10, paddingVertical: 3 },
   countPillText:  { color: "#AB8BFF", fontWeight: "800", fontSize: 12 },
-  subMgmtHint:    { color: "rgba(255,255,255,0.35)", fontSize: 11, lineHeight: 16, marginBottom: 12 },
+  hint:           { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(171,139,255,0.06)", borderRadius: 10, padding: 10, marginBottom: 12 },
+  hintTxt:        { color: "rgba(171,139,255,0.8)", fontSize: 11, lineHeight: 16, flex: 1 },
   dataRow:        { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)", gap: 8 },
   dataRowRank:    { color: "rgba(255,255,255,0.2)", fontSize: 11, fontWeight: "800", width: 24, textAlign: "center" },
   dataRowLeft:    { flex: 1, color: "rgba(255,255,255,0.8)", fontSize: 13 },

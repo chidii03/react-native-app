@@ -67,9 +67,11 @@ const initTrial = async (): Promise<string> => {
 };
 
 const checkIsOwner      = (email: string) => OWNER_EMAILS.includes(email.trim().toLowerCase());
-const checkIsSubscribed = (user: AuthUser | null) => {
+const checkIsSubscribed = (user: AuthUser | null, dbSubscribed?: boolean) => {
   if (!user) return false;
   if (checkIsOwner(user.email)) return true;
+  // Check both Appwrite account prefs AND database document (admin may have upgraded via DB)
+  if (dbSubscribed === true) return true;
   return user.prefs?.subscribed === true;
 };
 
@@ -141,6 +143,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       let u = (await withTimeout(account.get(), 4000)) as AuthUser;
       u = await syncGoogleAvatar(u); // auto-pull Google pic on boot
+
+      // ── Also check database document for subscription status ──────────────
+      // Admin upgrades via DB (databases.updateDocument) not via account.updatePrefs,
+      // so we must merge DB subscription state into the user object.
+      try {
+        const { databaseId, usersCollectionId } = appwriteIds;
+        if (databaseId && usersCollectionId) {
+          const { Query } = await import("react-native-appwrite");
+          const res = await withTimeout(
+            databases.listDocuments(databaseId, usersCollectionId, [
+              Query.equal("user_id", u.$id),
+              Query.limit(1),
+            ]),
+            3000
+          );
+          const doc = (res as any).documents?.[0];
+          if (doc) {
+            const dbSubscribed = doc.subscribed === true || doc.prefs_subscribed === true;
+            const dbPlan       = String(doc.plan ?? doc.prefs_plan ?? "free");
+            // Merge DB subscription into prefs so the rest of the app sees it
+            if (dbSubscribed && !u.prefs?.subscribed) {
+              u = { ...u, prefs: { ...(u.prefs ?? {}), subscribed: true, plan: dbPlan } };
+              // Persist back to account prefs silently
+              account.updatePrefs({ ...(u.prefs ?? {}), subscribed: true, plan: dbPlan }).catch(() => {});
+            }
+          }
+        }
+      } catch {} // non-fatal — subscription still works via account.prefs
+
       return u;
     } catch (e: any) {
       if (!String(e?.message ?? "").includes("__TIMEOUT_") && e?.code !== 401)
