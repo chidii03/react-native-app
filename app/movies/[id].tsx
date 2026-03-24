@@ -49,8 +49,11 @@ const openUrl = (url: string) => {
 };
 
 const PAYMENT_LINKS = {
-  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",   yearly: "https://paystack.shop/pay/mkghesxsg2" },
-  flutterwave: {monthly: "https://flutterwave.com/pay/7rlc2qs2qcfd", yearly:  "https://flutterwave.com/pay/xfqscqzgcwit",
+  paystack:    { monthly: "https://paystack.shop/pay/u-e7b46zzv",     yearly: "https://paystack.shop/pay/mkghesxsg2" },
+  flutterwave: {
+    // NGN
+    monthly: "https://flutterwave.com/pay/nbzc1l6pb4gn",
+    yearly:  "https://flutterwave.com/pay/cbcapoz0v5gk",
     // USD — create these in Flutterwave Dashboard → Payment Links
     usd_monthly: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
     usd_yearly:  process.env.EXPO_PUBLIC_FLW_USD_YEARLY  ?? "",
@@ -60,6 +63,9 @@ const PAYMENT_LINKS = {
     // GBP
     gbp_monthly: process.env.EXPO_PUBLIC_FLW_GBP_MONTHLY ?? "",
     gbp_yearly:  process.env.EXPO_PUBLIC_FLW_GBP_YEARLY  ?? "",
+    // CAD — Monthly: CA$1.36  |  Yearly: CA$10.88
+    cad_monthly: process.env.EXPO_PUBLIC_FLW_CAD_MONTHLY ?? "",
+    cad_yearly:  process.env.EXPO_PUBLIC_FLW_CAD_YEARLY  ?? "",
   },
 };
 
@@ -69,8 +75,8 @@ const getFLWUrl = (currency: string, plan: PlanId): string => {
   return (PAYMENT_LINKS.flutterwave as any)[key] ?? "";
 };
 
-const NGN_TO: Record<string, number> = { NGN: 1, USD: 1/1600, EUR: 1/1720, GBP: 1/2025 };
-const SYM:   Record<string, string>  = { NGN: "₦", USD: "$", EUR: "€", GBP: "£" };
+const NGN_TO: Record<string, number> = { NGN: 1, USD: 1/1600, EUR: 1/1720, GBP: 1/2025, CAD: 1/1175 };
+const SYM:   Record<string, string>  = { NGN: "₦", USD: "$", EUR: "€", GBP: "£", CAD: "CA$" };
 type PlanId    = "monthly" | "yearly";
 type GatewayId = "paystack" | "flutterwave";
 const fmt = (ngn: number, cur: string) => {
@@ -92,14 +98,13 @@ const PaywallModal = ({
   userEmail: string; userId: string; userName: string;
 }) => {
   const [plan,     setPlan]     = useState<PlanId>("monthly");
-  const [currency, setCurrency] = useState<"NGN"|"USD"|"EUR"|"GBP">("NGN");
+  const [currency, setCurrency] = useState<"NGN"|"USD"|"EUR"|"GBP"|"CAD">("NGN");
   const [gateway,  setGateway]  = useState<GatewayId>("flutterwave");
 
   const isWeb = Platform.OS === "web";
 
   const handleCurrencyChange = (c: typeof currency) => {
     setCurrency(c);
-    // Paystack only works for NGN; switch to Flutterwave for international
     if (c !== "NGN") setGateway("flutterwave");
   };
 
@@ -179,7 +184,7 @@ const PaywallModal = ({
 
             {/* Currency */}
             <View style={PW.currencyRow}>
-              {(["NGN","USD","EUR","GBP"] as const).map(c => (
+              {(["NGN","USD","EUR","GBP","CAD"] as const).map(c => (
                 <TouchableOpacity key={c} onPress={() => handleCurrencyChange(c)}
                   style={[PW.currChip, currency === c && PW.currChipActive]} activeOpacity={0.8}>
                   <Text style={[PW.currTxt, currency === c && { color: "#AB8BFF" }]}>{SYM[c]}{c}</Text>

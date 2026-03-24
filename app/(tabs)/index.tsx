@@ -14,7 +14,6 @@ import BentoGrid from "../../components/BentoGrid";
 import GenreChipRow from "../../components/GenreChipRow";
 import ComingSoonCardRow from "../../components/ComingSoonCard";
 import TrendingCard from "../../components/TrendingCard";
-import MovieCard from "../../components/MovieCard";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
 import useFetch from "../../services/useFetch";

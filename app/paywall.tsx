@@ -22,8 +22,8 @@ const PAYMENT_LINKS = {
   },
   flutterwave: {
     // NGN
-    monthly_ngn: "https://flutterwave.com/pay/7rlc2qs2qcfd",
-    yearly_ngn:  "https://flutterwave.com/pay/xfqscqzgcwit",
+    monthly_ngn: "https://flutterwave.com/pay/nbzc1l6pb4gn",
+    yearly_ngn:  "https://flutterwave.com/pay/cbcapoz0v5gk",
     // USD — create at dashboard.flutterwave.com → Payment Links → currency: USD
     // Monthly: $1.00  |  Yearly: $8.00
     monthly_usd: process.env.EXPO_PUBLIC_FLW_USD_MONTHLY ?? "",
@@ -34,6 +34,9 @@ const PAYMENT_LINKS = {
     // GBP — Monthly: £0.79  |  Yearly: £6.32
     monthly_gbp: process.env.EXPO_PUBLIC_FLW_GBP_MONTHLY ?? "",
     yearly_gbp:  process.env.EXPO_PUBLIC_FLW_GBP_YEARLY  ?? "",
+    // CAD — Monthly: CA$1.36  |  Yearly: CA$10.88
+    monthly_cad: process.env.EXPO_PUBLIC_FLW_CAD_MONTHLY ?? "",
+    yearly_cad:  process.env.EXPO_PUBLIC_FLW_CAD_YEARLY  ?? "",
   },
 };
 
@@ -45,12 +48,12 @@ const getFLWUrl = (plan: PlanId, currency: string): string => {
 };
 
 const NGN_TO: Record<string, number> = {
-  NGN: 1, USD: 1 / 1600, EUR: 1 / 1720, GBP: 1 / 2025,
+  NGN: 1, USD: 1 / 1600, EUR: 1 / 1720, GBP: 1 / 2025, CAD: 1 / 1175,
 };
 const SYM: Record<string, string> = {
-  NGN: "₦", USD: "$", EUR: "€", GBP: "£",
+  NGN: "₦", USD: "$", EUR: "€", GBP: "£", CAD: "CA$",
 };
-const CURRENCIES = ["NGN", "USD", "EUR", "GBP"] as const;
+const CURRENCIES = ["NGN", "USD", "EUR", "GBP", "CAD"] as const;
 
 const PLANS = [
   { id: "monthly", label: "Monthly", ngn: 1600,  per: "/month", savings: null,       popular: false },
