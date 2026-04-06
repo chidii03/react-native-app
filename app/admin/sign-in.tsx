@@ -10,8 +10,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const ADMIN_EMAIL    = "chidiokwu795@gmail.com";
-const ADMIN_PASSWORD = "chidi@admin2024";
+const ADMIN_EMAIL    = (process.env.EXPO_PUBLIC_ADMIN_EMAIL    ?? "").toLowerCase().trim();
+const ADMIN_PASSWORD =  process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
 const SESSION_KEY    = "admin_session";
 
 const TMDB_BASE = "https://image.tmdb.org/t/p/w185";
@@ -81,7 +81,12 @@ export default function AdminSignIn() {
     // Short artificial delay to prevent brute-force timing
     await new Promise(r => setTimeout(r, 400));
 
-    if (em !== ADMIN_EMAIL.toLowerCase() || password !== ADMIN_PASSWORD) {
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+      setError("Admin credentials not set. Add EXPO_PUBLIC_ADMIN_EMAIL and EXPO_PUBLIC_ADMIN_PASSWORD to Vercel environment variables.");
+      setLoading(false);
+      return;
+    }
+    if (em !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
       setError("Invalid credentials. Access denied.");
       setLoading(false);
       return;

@@ -143,8 +143,10 @@ export default function Paywall() {
     <View style={S.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <LinearGradient colors={["#12003a","#1a0533","#0f0f12"]} style={StyleSheet.absoluteFill} />
+      {/* Bottom nav-bar background patch — kills white gap on Android */}
+      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 60, backgroundColor: "#0f0f12" }} />
 
-      <SafeAreaView style={{ flex: 1 }}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
 
           {/* Header */}
@@ -300,8 +302,8 @@ export default function Paywall() {
 }
 
 const S = StyleSheet.create({
-  root:              { flex: 1, backgroundColor: "#0f0f12" },
-  scroll:            { flexGrow: 1, padding: 20, paddingBottom: 48 },
+  root:              { flex: 1, backgroundColor: "#0f0f12", paddingBottom: 0 },
+  scroll:            { flexGrow: 1, padding: 20, paddingBottom: 80 },
   headerRow:         { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 },
   backBtn:           { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
   logoRow:           { flexDirection: "row", alignItems: "center", gap: 7 },
